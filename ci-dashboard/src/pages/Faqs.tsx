@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { PageHead, useDrill } from '../components/layout';
-import { Card, KpiCard, Loading, ErrorState, RankBars, Heatmap, DataTable, exportCsv, Pill, type Column, EmptyState, Prov } from '../components/ui';
+import { Card, KpiCard, Loading, ErrorState, RankBars, Heatmap, DataTable, exportCsv, type Column, EmptyState, Prov } from '../components/ui';
 import { ScopeBanner, scopeNote } from '../components/ScopeBanner';
 import { useFilteredData } from '../state/useData';
 import { useAppState } from '../state/AppState';
@@ -62,9 +62,9 @@ export default function Faqs() {
     {
       key: 'ans', label: 'Answer status', render: (r) => (
         <div className="chip-row">
-          {r.answered > 0 && <Pill tone="good">{r.answered} answered</Pill>}
-          {r.partial > 0 && <Pill tone="warning">{r.partial} partial</Pill>}
-          {r.unanswered > 0 && <Pill tone="critical">{r.unanswered} unanswered</Pill>}
+          {r.answered > 0 && <button className="pill good pill-button" onClick={(e) => { e.stopPropagation(); drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: 'answered', faqSentimentAfter: '' }); }}>{r.answered} answered</button>}
+          {r.partial > 0 && <button className="pill warning pill-button" onClick={(e) => { e.stopPropagation(); drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: 'partial', faqSentimentAfter: '' }); }}>{r.partial} partial</button>}
+          {r.unanswered > 0 && <button className="pill critical pill-button" onClick={(e) => { e.stopPropagation(); drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: 'unanswered', faqSentimentAfter: '' }); }}>{r.unanswered} unanswered</button>}
         </div>
       ), sortVal: (r) => pctVal(r.unanswered, r.calls),
     },
@@ -102,7 +102,7 @@ export default function Faqs() {
           <RankBars items={unansweredBoard.map((r) => ({
             label: r.standardized, value: r.unanswered,
             sub: `${fmtPct(r.unanswered, r.calls)} of ${r.calls} occurrences · ${r.category}`,
-            color: 'var(--serious)', onClick: () => drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: 'unanswered' }),
+            color: 'var(--serious)', onClick: () => drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: 'unanswered', faqSentimentAfter: '' }),
           }))} emptyMessage="No unanswered questions in this period." />
         </Card>
         <Card title={<>Emerging FAQs <Prov k="faq.questions" /></>} sub="Volume rising vs comparison period — get ahead of these">
@@ -110,7 +110,7 @@ export default function Faqs() {
             <RankBars items={emergent.map((r) => ({
               label: r.standardized, value: r.calls,
               sub: `was ${r.prevCalls} in prior period · ${r.category}`,
-              color: 'var(--warning)', onClick: () => drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: '' }),
+              color: 'var(--warning)', onClick: () => drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: '', faqSentimentAfter: '' }),
             }))} />
           )}
         </Card>
@@ -119,7 +119,7 @@ export default function Faqs() {
             label: r.standardized, value: Math.round(r.negativeAfterPct),
             sub: `${r.calls} occurrences · ${fmtPct(r.unanswered, r.calls)} unanswered`,
             color: r.negativeAfterPct > 25 ? 'var(--critical)' : 'var(--s1)',
-            onClick: () => drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: '' }),
+            onClick: () => drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: '', faqSentimentAfter: 'negative' }),
           }))} valueFmt={(v) => `${v}% neg`} />
         </Card>
         <Card title={<>FAQ trend by category <Prov k="faq.category" /></>} sub="Share of analysed calls containing each category (top 8)">
@@ -160,7 +160,7 @@ export default function Faqs() {
       </div>
       <Card>
         <DataTable columns={cols} rows={rows} rowKey={(r) => r.standardized} pageSize={12}
-          initialSort={{ key: 'calls', dir: 'desc' }} onRow={(r) => drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: '' })} />
+          initialSort={{ key: 'calls', dir: 'desc' }} onRow={(r) => drill({ faqCategory: r.category, faqQuestion: r.standardized, faqStatus: '', faqSentimentAfter: '' })} />
       </Card>
     </>
   );

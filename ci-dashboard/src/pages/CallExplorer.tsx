@@ -80,10 +80,10 @@ export default function CallExplorer() {
 
       {filters.faqQuestion && (
         <Card style={{ marginBottom: 14 }}>
-          <div className="selected-faq-label">Selected FAQ{filters.faqStatus === 'unanswered' ? ' · unanswered occurrences only' : ''}</div>
+          <div className="selected-faq-label">Selected FAQ{filters.faqStatus ? ` · ${filters.faqStatus} occurrences only` : filters.faqSentimentAfter ? ` · ${filters.faqSentimentAfter} sentiment after answer only` : ''}</div>
           <div className="selected-faq-question">{filters.faqQuestion}</div>
           <div className="cell-sub" style={{ marginTop: 6 }}>
-            The list below contains only calls where this exact question appeared{filters.faqStatus === 'unanswered' ? ' and was not answered' : ''}.
+            The list below contains only calls where this exact question appeared{filters.faqStatus ? ` with an answer status of “${filters.faqStatus}”` : filters.faqSentimentAfter ? ` with “${filters.faqSentimentAfter}” sentiment immediately afterward` : ''}.
           </div>
         </Card>
       )}

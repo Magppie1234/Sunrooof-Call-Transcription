@@ -108,7 +108,7 @@ export function TopBar() {
   const regions = [...new Set(GEO.map((g) => g.region))];
   const states = [...new Set(GEO.filter((g) => !filters.region || g.region === filters.region).map((g) => g.state))];
   const teams = [...new Set(EMPLOYEES.map((e) => e.team))];
-  const activeCount = (['region', 'state', 'team', 'employee', 'product', 'direction', 'language', 'sentiment', 'intent', 'customerType', 'leadSource', 'faqCategory', 'faqQuestion', 'faqStatus', 'objection', 'compliance'] as (keyof FilterState)[])
+  const activeCount = (['region', 'state', 'team', 'employee', 'product', 'direction', 'language', 'sentiment', 'intent', 'customerType', 'leadSource', 'faqCategory', 'faqQuestion', 'faqStatus', 'faqSentimentAfter', 'objection', 'compliance'] as (keyof FilterState)[])
     .filter((k) => filters[k]).length;
 
   return (
@@ -192,7 +192,7 @@ export function useDrill() {
   return (patch: Partial<FilterState>) => {
     const categoryOnly = Object.prototype.hasOwnProperty.call(patch, 'faqCategory') &&
       !Object.prototype.hasOwnProperty.call(patch, 'faqQuestion');
-    setFilters(categoryOnly ? { ...patch, faqQuestion: '', faqStatus: '' } : patch);
+    setFilters(categoryOnly ? { ...patch, faqQuestion: '', faqStatus: '', faqSentimentAfter: '' } : patch);
     navigate('/calls');
   };
 }
