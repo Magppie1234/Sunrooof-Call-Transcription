@@ -117,7 +117,7 @@ export default function Regional() {
       <div className="two-col">
         <Card title={<>{`Metric heatmap by ${level}`} <Prov k="region.geo" /></>} sub="Rates per 100 analysed calls · low-sample rows are marked in the table below · click to drill">
           <Heatmap rows={segs.map((s) => `${s.key}${s.reliable ? '' : ' ⚠'}`)} cols={metricCols} value={metricVal}
-            display={(v) => v.toFixed(0)}
+            display={(v) => `${v.toFixed(0)}%`}
             onCell={(rowLabel) => { const s = segs.find((x) => rowLabel.startsWith(x.key)); if (s) drillLevel(s.key); }} />
         </Card>
         <Card title={<>Where questions go unanswered <Prov k="region.geo" /></>} sub={`Unanswered FAQ occurrences per ${level} — knowledge-gap hotspots`}>
