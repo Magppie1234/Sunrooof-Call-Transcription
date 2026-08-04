@@ -78,6 +78,16 @@ export default function CallExplorer() {
         periodNote={scopeNote(d, filters.preset)} />
       <ScopeBanner d={d} />
 
+      {filters.faqQuestion && (
+        <Card style={{ marginBottom: 14 }}>
+          <div className="selected-faq-label">Selected FAQ{filters.faqStatus === 'unanswered' ? ' · unanswered occurrences only' : ''}</div>
+          <div className="selected-faq-question">{filters.faqQuestion}</div>
+          <div className="cell-sub" style={{ marginTop: 6 }}>
+            The list below contains only calls where this exact question appeared{filters.faqStatus === 'unanswered' ? ' and was not answered' : ''}.
+          </div>
+        </Card>
+      )}
+
       <Card>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
           <input className="searchbox" placeholder="Search call ID, customer, summary, topic…" value={filters.search}

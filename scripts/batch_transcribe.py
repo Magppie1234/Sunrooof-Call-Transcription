@@ -219,8 +219,8 @@ def main():
 
     if not proxy_up():
         print(f"❌ Audio proxy not reachable at {PROXY_BASE}")
-        print("   Downloads go through the dashboard proxy. Start it first:")
-        print("     cd dashboard && npm run dev")
+        print("   Downloads go through the local audio proxy. Start it first:")
+        print("     node scripts/audio_proxy.mjs")
         print("   (or set AUDIO_PROXY_BASE if it runs elsewhere)")
         sys.exit(1)
     print(f"✅ Audio proxy up at {PROXY_BASE}")
@@ -357,7 +357,7 @@ def main():
     print(f"✅ Done! {total_saved} new transcripts saved.")
     if no_audio_count:
         print(f"   ({no_audio_count} calls had no downloadable audio — purged/empty recordings)")
-    print(f"   Refresh http://localhost:3000/calls to see them.")
+    print("   Rebuild ci-dashboard/src/data/real/dataset.json to publish them.")
 
 if __name__ == "__main__":
     main()

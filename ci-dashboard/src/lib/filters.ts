@@ -22,6 +22,8 @@ export interface FilterState {
   intent: string;
   customerType: string;
   faqCategory: string;
+  faqQuestion: string;
+  faqStatus: string;
   objection: string;
   actionStatus: string;
   compliance: string; // 'flagged' | ''
@@ -32,7 +34,7 @@ export interface FilterState {
 export const DEFAULT_FILTERS: FilterState = {
   preset: '30d', region: '', state: '', city: '', team: '', employee: '', product: '',
   direction: '', language: '', sentiment: '', outcome: '', leadSource: '', campaign: '',
-  intent: '', customerType: '', faqCategory: '', objection: '', actionStatus: '',
+  intent: '', customerType: '', faqCategory: '', faqQuestion: '', faqStatus: '', objection: '', actionStatus: '',
   compliance: '', includeLowConfidence: false, search: '',
 };
 
@@ -72,7 +74,13 @@ function matchesDims(c: CallRecord, f: FilterState): boolean {
   if (f.campaign && c.campaign !== f.campaign) return false;
   if (f.intent && c.intent !== f.intent) return false;
   if (f.customerType && c.customerType !== f.customerType) return false;
-  if (f.faqCategory && !c.faqs.some((q) => q.category === f.faqCategory)) return false;
+  if (f.faqCategory || f.faqQuestion || f.faqStatus) {
+    const matchesFaq = c.faqs.some((q) =>
+      (!f.faqCategory || q.category === f.faqCategory) &&
+      (!f.faqQuestion || q.standardized === f.faqQuestion) &&
+      (!f.faqStatus || q.status === f.faqStatus));
+    if (!matchesFaq) return false;
+  }
   if (f.objection && !c.objections.some((o) => o.type === f.objection)) return false;
   if (f.actionStatus && !c.actions.some((a) => a.slaStatus === f.actionStatus || a.status === f.actionStatus)) return false;
   if (f.compliance === 'flagged' && c.complianceFlags.length === 0) return false;
