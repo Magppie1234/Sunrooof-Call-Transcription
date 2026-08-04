@@ -1,0 +1,24 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.zoho_token_cache.json
+
+# Runtime junk
+*.log
+*.pid
+.DS_Store
+
+# Discovery output (may contain customer data)
+out/
+recordings/
+*.mp3
+*.wav
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
