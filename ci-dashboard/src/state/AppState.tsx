@@ -27,6 +27,8 @@ interface AppStateValue {
   saveView: (name: string) => void;
   applyView: (name: string) => void;
   deleteView: (name: string) => void;
+  exploreMode: boolean;
+  setExploreMode: (enabled: boolean) => void;
 }
 
 const Ctx = createContext<AppStateValue | null>(null);
@@ -48,6 +50,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [filters, setFiltersState] = useState<FilterState>(DEFAULT_FILTERS);
   const [role, setRoleState] = useState<Role>('Management');
   const [savedViews, setSavedViews] = useState<SavedView[]>(loadViews);
+  const [exploreMode, setExploreMode] = useState(false);
 
   const setFilters = useCallback((patch: Partial<FilterState>) => {
     setFiltersState((f) => ({ ...f, ...patch }));
@@ -81,8 +84,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     persist(savedViews.filter((v) => v.name !== name));
   }, [savedViews]);
 
-  const value = useMemo(() => ({ filters, setFilters, resetFilters, role, setRole, savedViews, saveView, applyView, deleteView }),
-    [filters, setFilters, resetFilters, role, setRole, savedViews, saveView, applyView, deleteView]);
+  const value = useMemo(() => ({ filters, setFilters, resetFilters, role, setRole, savedViews, saveView, applyView, deleteView, exploreMode, setExploreMode }),
+    [filters, setFilters, resetFilters, role, setRole, savedViews, saveView, applyView, deleteView, exploreMode]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState, type CSSProperties, type ReactNode } from 
 import { fmtDelta, fmtInt } from '../lib/format';
 import { MIN_SAMPLE_SIZE } from '../config';
 import { provOf, type ProvStatus } from '../lib/provenance';
+import { useAppState } from '../state/AppState';
 
 // ---------- Data provenance dot ----------
 const PROV_LABEL: Record<ProvStatus, string> = {
@@ -47,6 +48,26 @@ export const SampleNote = ({ n, label = 'analysed calls' }: { n: number; label?:
 );
 
 // ---------- Cards ----------
+function SectionExplanation({ summary, metricLabel }: { summary?: ReactNode; metricLabel?: string }) {
+  const { exploreMode } = useAppState();
+  const [open, setOpen] = useState(false);
+  if (!exploreMode) return null;
+  return (
+    <div className="section-explain" onClick={(e) => e.stopPropagation()}>
+      <button className="section-explain-button" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        {open ? 'Hide explanation' : 'What does this section mean?'}
+      </button>
+      {open && (
+        <div className="section-explain-content">
+          {metricLabel ? <><strong>{metricLabel}</strong> is the main value shown in this card. </> : null}
+          {summary ? <span>{summary} </span> : <span>This section summarizes the calls matching your current filters. </span>}
+          Numbers without a % sign are counts. Numbers with a % sign are shares of the group described beside or below them. Clickable rows, bars and cells open the calls used to calculate that result.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Card({ title, sub, right, children, style }: { title?: ReactNode; sub?: ReactNode; right?: ReactNode; children: ReactNode; style?: CSSProperties }) {
   return (
     <div className="card" style={style}>
@@ -57,6 +78,7 @@ export function Card({ title, sub, right, children, style }: { title?: ReactNode
         </div>
       )}
       {children}
+      <SectionExplanation summary={sub} />
     </div>
   );
 }
@@ -88,6 +110,7 @@ export function KpiCard({ label, value, prev, denomNote, accent = 'var(--s1)', o
         {denomNote && <span>{denomNote}</span>}
         {extra}
       </div>
+      <SectionExplanation summary={denomNote} metricLabel={label} />
     </div>
   );
 }

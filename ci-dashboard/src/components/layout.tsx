@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { BRAND } from '../config';
 import { PRESET_LABEL, type DatePreset, type FilterState } from '../lib/filters';
 import { EMPLOYEES, GEO, PRODUCT_SERIES, LANGUAGES, LEAD_SOURCES } from '../data/taxonomy';
@@ -7,7 +7,6 @@ import { useAppState, ROLE_PAGES, type Role } from '../state/AppState';
 import { service, useAlerts } from '../state/useData';
 import { fmtDate, fmtDateTime, shortName } from '../lib/format';
 import { DATA_ANCHOR } from '../services/realService';
-import { PAGE_HELP } from '../data/pageHelp';
 
 const NAV: { path: string; label: string; icon: string; group: string }[] = [
   { path: '/', label: 'Executive Overview', icon: '◧', group: 'Insights' },
@@ -100,11 +99,9 @@ function Select({ value, onChange, options, placeholder, label }: {
 }
 
 export function TopBar() {
-  const { filters, setFilters, resetFilters, role, savedViews, saveView, applyView, deleteView } = useAppState();
+  const { filters, setFilters, resetFilters, role, savedViews, saveView, applyView, deleteView, exploreMode, setExploreMode } = useAppState();
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
-  const { pathname } = useLocation();
   useEffect(() => { service.lastRefresh().then(setRefreshedAt); }, []);
 
   const set = (k: keyof FilterState) => (v: string) => setFilters({ [k]: v } as Partial<FilterState>);
@@ -143,39 +140,13 @@ export function TopBar() {
         {activeCount > 0 && <button className="btn small danger" onClick={resetFilters}>Reset ({activeCount})</button>}
         <SavedViewsMenu savedViews={savedViews.map((v) => v.name)} onSave={saveView} onApply={applyView} onDelete={deleteView} />
       </div>
-      <button className="btn explain-button" onClick={() => setShowHelp(true)} aria-haspopup="dialog">? Explain this page</button>
+      <button className={`btn explain-button${exploreMode ? ' active' : ''}`} onClick={() => setExploreMode(!exploreMode)} aria-pressed={exploreMode}>
+        {exploreMode ? '✓ Exit Explore mode' : '? Explore this page'}
+      </button>
       <div className="refresh-note">
         {role !== 'Management' && <span style={{ marginRight: 8 }}>Role: <strong>{role}</strong></span>}
         Last refresh: {refreshedAt ? fmtDateTime(refreshedAt) : '…'}
       </div>
-      {showHelp && <PageHelpDialog path={pathname} onClose={() => setShowHelp(false)} />}
-    </div>
-  );
-}
-
-function PageHelpDialog({ path, onClose }: { path: string; onClose: () => void }) {
-  const key = path.startsWith('/calls/') ? '/calls' : path;
-  const help = PAGE_HELP[key] ?? PAGE_HELP['/'];
-  useEffect(() => {
-    const closeOnEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
-
-  return (
-    <div className="help-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="page-help-title">
-        <div className="help-dialog-head">
-          <div><div className="help-eyebrow">Simple guide</div><h2 id="page-help-title">{help.title}</h2></div>
-          <button className="help-close" onClick={onClose} aria-label="Close explanation">×</button>
-        </div>
-        <p className="help-purpose">{help.purpose}</p>
-        <h3>What the numbers mean</h3>
-        <ul>{help.numbers.map((item) => <li key={item}>{item}</li>)}</ul>
-        <h3>How to use this page</h3>
-        <ul>{help.actions.map((item) => <li key={item}>{item}</li>)}</ul>
-        <div className="help-common"><strong>Remember:</strong> filters at the top affect the whole page. A count is a number of items; a value with <strong>%</strong> is a share. “Analysed calls” can be lower than total calls because short, non-meaningful or low-confidence calls are excluded.</div>
-      </section>
     </div>
   );
 }
