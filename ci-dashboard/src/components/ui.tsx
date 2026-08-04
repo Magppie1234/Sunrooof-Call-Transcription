@@ -48,7 +48,7 @@ export const SampleNote = ({ n, label = 'analysed calls' }: { n: number; label?:
 );
 
 // ---------- Cards ----------
-function SectionExplanation({ summary, metricLabel }: { summary?: ReactNode; metricLabel?: string }) {
+function SectionExplanation({ explanation, summary, metricLabel }: { explanation?: ReactNode; summary?: ReactNode; metricLabel?: string }) {
   const { exploreMode } = useAppState();
   const [open, setOpen] = useState(false);
   if (!exploreMode) return null;
@@ -59,16 +59,18 @@ function SectionExplanation({ summary, metricLabel }: { summary?: ReactNode; met
       </button>
       {open && (
         <div className="section-explain-content">
-          {metricLabel ? <><strong>{metricLabel}</strong> is the main value shown in this card. </> : null}
-          {summary ? <span>{summary} </span> : <span>This section summarizes the calls matching your current filters. </span>}
-          Numbers without a % sign are counts. Numbers with a % sign are shares of the group described beside or below them. Clickable rows, bars and cells open the calls used to calculate that result.
+          {explanation ?? <>
+            {metricLabel ? <><strong>{metricLabel}:</strong>{' '}</> : null}
+            {summary ? <span>{summary} </span> : <span>This section is calculated from calls matching the current period and filters. </span>}
+            The displayed values summarize that data; numbers with a % sign are shares, while numbers without one are counts.
+          </>}
         </div>
       )}
     </div>
   );
 }
 
-export function Card({ title, sub, right, children, style }: { title?: ReactNode; sub?: ReactNode; right?: ReactNode; children: ReactNode; style?: CSSProperties }) {
+export function Card({ title, sub, right, children, style, explain }: { title?: ReactNode; sub?: ReactNode; right?: ReactNode; children: ReactNode; style?: CSSProperties; explain?: ReactNode }) {
   return (
     <div className="card" style={style}>
       {(title || right) && (
@@ -78,12 +80,12 @@ export function Card({ title, sub, right, children, style }: { title?: ReactNode
         </div>
       )}
       {children}
-      <SectionExplanation summary={sub} />
+      <SectionExplanation explanation={explain} summary={sub} />
     </div>
   );
 }
 
-export function KpiCard({ label, value, prev, denomNote, accent = 'var(--s1)', onClick, format = fmtInt, invertDelta = false, extra, prov }: {
+export function KpiCard({ label, value, prev, denomNote, accent = 'var(--s1)', onClick, format = fmtInt, invertDelta = false, extra, prov, explain }: {
   label: string;
   value: number;
   prev?: number;
@@ -96,6 +98,8 @@ export function KpiCard({ label, value, prev, denomNote, accent = 'var(--s1)', o
   extra?: ReactNode;
   /** Provenance key — renders the real/partial/demo dot beside the label. */
   prov?: string;
+  /** Plain-language definition of what is counted and which records qualify. */
+  explain?: ReactNode;
 }) {
   const delta = prev !== undefined ? fmtDelta(value, prev) : null;
   const dir = delta && invertDelta ? (delta.dir === 'up' ? 'down' : delta.dir === 'down' ? 'up' : 'flat') : delta?.dir;
@@ -110,7 +114,7 @@ export function KpiCard({ label, value, prev, denomNote, accent = 'var(--s1)', o
         {denomNote && <span>{denomNote}</span>}
         {extra}
       </div>
-      <SectionExplanation summary={denomNote} metricLabel={label} />
+      <SectionExplanation explanation={explain} summary={denomNote} metricLabel={label} />
     </div>
   );
 }

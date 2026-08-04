@@ -126,12 +126,18 @@ export default function Actions() {
       <ScopeBanner d={d} />
 
       <div className="kpi-grid">
-        <KpiCard label="Open actions" prov="actions.list" value={open.length} denomNote={`of ${fmtInt(actions.length)} in period`} />
-        <KpiCard label="Committed on calls" prov="actions.list" value={committed.length} accent="var(--s1)" />
-        <KpiCard label="AI-recommended (need approval)" prov="actions.list" value={ai.filter((a) => a.status === 'pending').length} denomNote={`of ${fmtInt(ai.length)} AI-suggested`} accent="var(--warning)" />
-        <KpiCard label="Due today" prov="actions.sla" value={dueToday.length} accent="var(--warning)" />
-        <KpiCard label="Overdue" prov="actions.sla" value={overdue.length} accent="var(--critical)" invertDelta />
-        <KpiCard label="Completed in period" prov="actions.crmSync" value={completed.length} denomNote={`${completed.filter((a) => a.slaStatus === 'met').length} within SLA`} accent="var(--good)" />
+        <KpiCard label="Open actions" prov="actions.list" value={open.length} denomNote={`of ${fmtInt(actions.length)} in period`}
+          explain={<>Counts next steps extracted from the analysed calls whose status is <strong>pending, approved, or in progress</strong>. Completed and rejected actions are not included.</>} />
+        <KpiCard label="Committed on calls" prov="actions.list" value={committed.length} accent="var(--s1)"
+          explain={<>Counts actions based on an <strong>explicit promise made during the call</strong>, such as “I will send the quotation.” It includes committed actions in any status.</>} />
+        <KpiCard label="AI-recommended (need approval)" prov="actions.list" value={ai.filter((a) => a.status === 'pending').length} denomNote={`of ${fmtInt(ai.length)} AI-suggested`} accent="var(--warning)"
+          explain={<>Counts follow-ups suggested by the AI from the transcript that are still <strong>pending human approval</strong>. They are suggestions, not confirmed customer or agent commitments.</>} />
+        <KpiCard label="Due today" prov="actions.sla" value={dueToday.length} accent="var(--warning)"
+          explain={<>Counts open actions whose calculated or stated due date falls on the dashboard’s current reference date.</>} />
+        <KpiCard label="Overdue" prov="actions.sla" value={overdue.length} accent="var(--critical)" invertDelta
+          explain={<>Counts open actions whose due date has passed and which have not been completed or rejected.</>} />
+        <KpiCard label="Completed in period" prov="actions.crmSync" value={completed.length} denomNote={`${completed.filter((a) => a.slaStatus === 'met').length} within SLA`} accent="var(--good)"
+          explain={<>Counts extracted actions currently marked <strong>completed</strong>. “Within SLA” means they were completed by their deadline. In this static dashboard, status changes are stored only until the page is refreshed.</>} />
       </div>
 
       <div className="tabs" style={{ marginTop: 16 }}>
@@ -145,7 +151,7 @@ export default function Actions() {
         </button>
       </div>
 
-      <Card>
+      <Card explain={<>This table lists every extracted next action matching the selected tab and page filters. <strong>Source</strong> separates explicit call commitments from AI suggestions; <strong>due/SLA</strong> shows timing; and <strong>status</strong> shows whether the action is awaiting approval, active, completed, or rejected.</>}>
         <DataTable columns={cols} rows={visible} rowKey={(a) => a.id} pageSize={12}
           initialSort={{ key: 'due', dir: 'asc' }}
           onRow={(a) => navigate(`/calls/${a.callId}?t=${a.transcriptRef ?? 0}`)}
