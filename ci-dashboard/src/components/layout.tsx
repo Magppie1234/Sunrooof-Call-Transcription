@@ -6,7 +6,7 @@ import { EMPLOYEES, GEO, PRODUCT_SERIES, LANGUAGES, LEAD_SOURCES } from '../data
 import { useAppState, ROLE_PAGES, type Role } from '../state/AppState';
 import { service, useAlerts } from '../state/useData';
 import { fmtDate, fmtDateTime, shortName } from '../lib/format';
-import { DATA_ANCHOR } from '../services/realService';
+import { DATA_ANCHOR, DATASET_CALL_COUNT } from '../services/realService';
 
 const NAV: { path: string; label: string; icon: string; group: string }[] = [
   { path: '/', label: 'Executive Overview', icon: '◧', group: 'Insights' },
@@ -145,6 +145,7 @@ export function TopBar() {
       </button>
       <div className="refresh-note">
         {role !== 'Management' && <span style={{ marginRight: 8 }}>Role: <strong>{role}</strong></span>}
+        <span className="dataset-total">Dataset: <strong>{DATASET_CALL_COUNT} total calls</strong></span>
         Last refresh: {refreshedAt ? fmtDateTime(refreshedAt) : '…'}
       </div>
     </div>

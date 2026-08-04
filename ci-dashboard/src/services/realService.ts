@@ -28,6 +28,7 @@ interface Dataset {
   calls: CallRecord[];
 }
 const data = dataset as unknown as Dataset;
+export const DATASET_CALL_COUNT = data.calls.length;
 
 /**
  * The snapshot covers a fixed historical window (July 2026). The dashboard's
