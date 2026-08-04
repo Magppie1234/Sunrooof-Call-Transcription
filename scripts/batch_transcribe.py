@@ -65,7 +65,20 @@ def fetch_calls(token, stop_after=None):
         params = dict(base)
         if page_token:
             params["page_token"] = page_token
-        r = requests.get(f"{ZOHO_API}/crm/v7/Calls", params=params, headers=headers, timeout=60)
+        r = None
+        for attempt in range(5):
+            try:
+                r = requests.get(f"{ZOHO_API}/crm/v7/Calls", params=params,
+                                 headers=headers, timeout=60)
+                break
+            except requests.RequestException as e:
+                if attempt == 4:
+                    raise
+                wait = 5 * (attempt + 1)
+                print(f"  ⚠ Calls page {page + 1} request failed ({type(e).__name__}); "
+                      f"retrying in {wait}s", flush=True)
+                time.sleep(wait)
+        assert r is not None
         if not r.ok:
             print(f"  ⚠ Calls fetch stopped at page {page+1}: HTTP {r.status_code} {r.text[:120]}")
             break

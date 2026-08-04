@@ -6,6 +6,7 @@ STATE_DIR="$JOB_ROOT/out/july_backfill_state"
 LOG_DIR="$JOB_ROOT/out/logs"
 PID_FILE="$STATE_DIR/runner.pid"
 PY="$JOB_ROOT/.venv/bin/python"
+export PYTHONUNBUFFERED=1
 
 mkdir -p "$STATE_DIR" "$LOG_DIR"
 exec >>"$LOG_DIR/july-backfill.log" 2>&1
