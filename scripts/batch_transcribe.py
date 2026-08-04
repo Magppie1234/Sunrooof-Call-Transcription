@@ -212,6 +212,8 @@ def main():
                         help="Only calls on/after this date, YYYY-MM-DD (by Call_Start_Time)")
     parser.add_argument("--until",         type=str, default="",
                         help="Only calls on/before this date, YYYY-MM-DD (inclusive)")
+    parser.add_argument("--dry-run",       action="store_true",
+                        help="List the eligible count and duration without downloading or transcribing")
     args = parser.parse_args()
     REQUEST_DELAY = args.delay
 
@@ -280,6 +282,9 @@ def main():
     total_secs = sum(dur_secs(c) for c in candidates)
     print(f"\n📋 {len(candidates)} calls to transcribe "
           f"(~{total_secs//60} min total audio)\n")
+    if args.dry_run:
+        print("🔎 Dry run only — no recordings downloaded and no transcription requested.")
+        return
 
     # ── Process in batches: download → transcribe → save (incremental) ─────
     # Interleaving keeps progress durable — a mid-run cookie expiry only loses
@@ -308,7 +313,7 @@ def main():
                 print("\n⛔ Proxy returned a login/auth response — the ZOHO_COOKIE is dead.")
                 print("   Refresh ZOHO_COOKIE in .env and re-run; saved transcripts are kept.")
                 print(f"\n{'='*50}\n✅ Saved {total_saved} new transcripts before stopping.")
-                return
+                sys.exit(2)
             elif status == "rate_limited":
                 rate_limit_hits += 1
                 print(f"  ⏳ Proxy throttling (hit {rate_limit_hits}) — pausing 60s")
@@ -317,7 +322,7 @@ def main():
                     print("\n⛔ Sustained throttling from the Zoho proxy — backing off.")
                     print("   Wait a while, then re-run; saved transcripts are kept and skipped.")
                     print(f"\n{'='*50}\n✅ Saved {total_saved} new transcripts before stopping.")
-                    return
+                    sys.exit(2)
 
             time.sleep(REQUEST_DELAY)   # pace requests to stay under the proxy limit
 
@@ -332,9 +337,8 @@ def main():
             results = run_sarvam_batch(mp3_ready)
         except Exception as e:
             print(f"  ⚠ Batch {b_num} failed ({type(e).__name__}: {e}) — "
-                  f"skipping, will retry on re-run\n")
-            time.sleep(10)
-            continue
+                  f"stopping so the restartable runner can retry it\n")
+            sys.exit(2)
         if results:
             saved = save_results(results, id_to_file)
             total_saved += saved

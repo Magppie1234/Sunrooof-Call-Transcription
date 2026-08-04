@@ -62,6 +62,9 @@ def main():
         print(f"  {min(i + BATCH_SIZE, len(files))}/{len(files)} processed")
 
     print(f"\n✅ Done. Uploaded {ok}, failed {failed}.")
+    if failed:
+        print("❌ One or more upload batches failed; re-run to retry them safely.")
+        sys.exit(2)
 
 if __name__ == "__main__":
     main()
