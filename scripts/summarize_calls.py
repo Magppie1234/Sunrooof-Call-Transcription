@@ -531,8 +531,8 @@ def sb_headers(extra=None):
     return h
 
 def fetch_summarized_ids():
-    """Paginated — PostgREST caps at 1000 rows/request by default."""
-    ids, offset, page = set(), 0, 1000
+    """Fetch every summarized ID despite the project's 100-row API cap."""
+    ids, offset, page = set(), 0, 100
     while True:
         r = requests.get(f"{SUPABASE_URL}/rest/v1/call_summaries",
                           headers=sb_headers({"Range": f"{offset}-{offset + page - 1}"}),
@@ -598,7 +598,9 @@ def save_summary(call_id, meta, a_pct, c_pct, num_turns, result: CallSummary):
     r = requests.post(f"{SUPABASE_URL}/rest/v1/call_summaries",
                        headers=sb_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
                        data=json.dumps(row), timeout=30)
-    r.raise_for_status()
+    if not r.ok:
+        raise requests.HTTPError(
+            f"{r.status_code} {r.reason}: {r.text[:1000]}", response=r)
 
 # ── Main ───────────────────────────────────────────────────────────────────
 def main():
