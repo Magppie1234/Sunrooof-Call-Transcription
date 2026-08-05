@@ -48,6 +48,19 @@ run_once() {
   echo "$(date '+%Y-%m-%dT%H:%M:%S%z') Completed stage: $marker"
 }
 
+# Recoverable Ozonetel audio is handled as a separate restart-safe stage. It
+# precedes the original Zoho pipeline so a login restart resumes transcription
+# before spending time rebuilding downstream analytics.
+run_once ozonetel_transcribe "$PY" scripts/transcribe_ozonetel_july.py
+run_once ozonetel_upload "$PY" scripts/sync_transcripts_to_supabase.py
+run_once ozonetel_summaries "$PY" scripts/refresh_all.py --only summaries
+
+for stage in regions regions-apply names faqs faq-agg zoho enrich dataset; do
+  run_once "ozonetel-$stage" "$PY" scripts/refresh_all.py --only "$stage"
+done
+
+run_once ozonetel_dashboard_build npm --prefix ci-dashboard run build
+
 run_once transcribe "$PY" scripts/batch_transcribe.py \
   --since 2026-07-01 --until 2026-07-31 --min-duration 31 --batch-size 20
 run_once upload_transcripts "$PY" scripts/sync_transcripts_to_supabase.py
