@@ -17,6 +17,7 @@ from batch_transcribe import OUT, TDIR, run_sarvam_batch, save_results
 BASE = Path(__file__).resolve().parent.parent
 OZONE_CDR = BASE / "out/ozonetel_cdr_2026-07-21_to_31.json"
 ZOHO_CALLS = BASE / "out/zoho_july21_31_gt30.json"
+EXPORT_MATCHES = BASE / "out/ozonetel_july01_15_matches.json"
 
 
 def duration_seconds(row):
@@ -26,14 +27,23 @@ def duration_seconds(row):
         return 0
 
 
-def candidates():
+def candidates(source):
+    done = {p.name.removesuffix(".mp3.json") for p in TDIR.glob("*.json")}
+    if source == "export-july1-15":
+        exported = json.loads(EXPORT_MATCHES.read_text())
+        return [
+            (item["zoho"], item["audio_url"])
+            for item in exported
+            if str(item["zoho"].get("id") or "") not in done
+            and item.get("audio_url")
+        ]
+
     ozone = json.loads(OZONE_CDR.read_text())
     zoho = json.loads(ZOHO_CALLS.read_text())
     audio_by_call_id = {
         str(row.get("CallID")): row["CallAudio"]
         for row in ozone if row.get("CallID") and row.get("CallAudio")
     }
-    done = {p.name.removesuffix(".mp3.json") for p in TDIR.glob("*.json")}
     matched = []
     for row in zoho:
         crm_id = str(row.get("id") or "")
@@ -69,11 +79,14 @@ def download(url, destination, retries=4):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch-size", type=int, default=20)
+    parser.add_argument("--source", choices=("api-july21-31", "export-july1-15"),
+                        default="api-july21-31")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     batch_size = min(max(args.batch_size, 1), 20)
-    pending = candidates()
+    pending = candidates(args.source)
     seconds = sum(duration_seconds(row) for row, _ in pending)
+    print(f"Ozonetel source: {args.source}")
     print(f"Ozonetel recordings ready: {len(pending)}")
     print(f"Audio: {seconds / 60:.1f} min ({seconds / 3600:.1f} h)")
     print(f"Estimated Sarvam cost at INR 45/hour: INR {seconds / 3600 * 45:.2f}")

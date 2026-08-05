@@ -52,6 +52,8 @@ run_once() {
 # precedes the original Zoho pipeline so a login restart resumes transcription
 # before spending time rebuilding downstream analytics.
 run_once ozonetel_transcribe "$PY" scripts/transcribe_ozonetel_july.py
+run_once ozonetel_export_july01_15 "$PY" scripts/transcribe_ozonetel_july.py \
+  --source export-july1-15
 run_once ozonetel_upload "$PY" scripts/sync_transcripts_to_supabase.py
 run_once ozonetel_summaries "$PY" scripts/refresh_all.py --only summaries
 
