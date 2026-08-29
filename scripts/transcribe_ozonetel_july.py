@@ -79,12 +79,22 @@ def download(url, destination, retries=4):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch-size", type=int, default=20)
-    parser.add_argument("--source", choices=("api-july21-31", "export-july1-15"),
+    parser.add_argument("--source", choices=("api-july21-31", "export-july1-15", "export-file"),
                         default="api-july21-31")
+    parser.add_argument("--matches-file", default=None,
+                        help="required when --source export-file; path to a matches "
+                             "JSON built by build_ozonetel_csv_matches.py")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     batch_size = min(max(args.batch_size, 1), 20)
-    pending = candidates(args.source)
+    if args.source == "export-file":
+        if not args.matches_file:
+            raise SystemExit("--source export-file requires --matches-file")
+        global EXPORT_MATCHES
+        EXPORT_MATCHES = Path(args.matches_file)
+        pending = candidates("export-july1-15")  # same loader path, generic now
+    else:
+        pending = candidates(args.source)
     seconds = sum(duration_seconds(row) for row, _ in pending)
     print(f"Ozonetel source: {args.source}")
     print(f"Ozonetel recordings ready: {len(pending)}")

@@ -188,40 +188,93 @@ def main():
     for i, it in enumerate(items):
         by_topic[it["topic"]].append(i)
 
+    # Topics are clustered in chunks. Sending a whole topic in one request died
+    # on 2026-08-11: the largest had 3,141 questions and asking for 30k output
+    # tokens blew past even a 300s timeout with 5 retries, costing the stage
+    # 44 minutes before it failed. Chunking keeps every request small enough to
+    # return, and a second pass merges canonical questions across chunks so the
+    # split does not fragment the FAQ.
+    CHUNK = 250
+
+    def cluster_once(topic, labels, max_idx_offset_note=""):
+        """Cluster a list of question strings. Returns [{canonical_question, members}]
+        with members as indices into `labels`. Falls back to singletons."""
+        qlist = "\n".join(f"{n}: {q}" for n, q in enumerate(labels))
+        clusters = None
+        for attempt in range(2):
+            try:
+                raw = llm(client,
+                          CLUSTER_PROMPT.format(topic=topic, questions=qlist,
+                                                max_idx=len(labels) - 1),
+                          max_out=min(30000, 60 * len(labels) + 2000))
+                clusters = json.loads(extract_json(raw))["clusters"]
+                break
+            except Exception as e:
+                print(f"  ⚠ cluster attempt {attempt + 1} failed for {topic}"
+                      f"{max_idx_offset_note}: {type(e).__name__}: {e}")
+        if clusters is None:
+            print(f"  ⚠ giving up on this batch of {topic}; falling back to singletons")
+            return [{"canonical_question": q, "members": [n]} for n, q in enumerate(labels)]
+        out, assigned = [], set()
+        for c in clusters:
+            members = [n for n in c.get("members", [])
+                       if isinstance(n, int) and 0 <= n < len(labels) and n not in assigned]
+            assigned.update(members)
+            if members and c.get("canonical_question"):
+                out.append({"canonical_question": c["canonical_question"], "members": members})
+        for n, q in enumerate(labels):      # anything the model dropped
+            if n not in assigned:
+                out.append({"canonical_question": q, "members": [n]})
+        return out
+
     faqs = []
     for topic, idxs in sorted(by_topic.items(), key=lambda kv: -len(kv[1])):
-        print(f"🧩 clustering {len(idxs)} question(s) in '{topic}'…")
+        print(f"🧩 clustering {len(idxs)} question(s) in '{topic}'…", flush=True)
         if len(idxs) == 1:
             i = idxs[0]
             faqs.append({"canonical_question": items[i]["question"], "topic": topic, "members": [i]})
             continue
-        qlist = "\n".join(f"{n}: {items[i]['question']}" for n, i in enumerate(idxs))
-        # 30k output headroom: the biggest topics truncate at anything less and
-        # a truncated response costs the whole topic its clustering.
-        clusters = None
-        for attempt in range(2):
-            raw = llm(client, CLUSTER_PROMPT.format(topic=topic, questions=qlist, max_idx=len(idxs) - 1),
-                      max_out=30000)
-            try:
-                clusters = json.loads(extract_json(raw))["clusters"]
+
+        # Pass 1 — cluster within each chunk, carrying global indices through.
+        groups = []          # [{canonical_question, members(global idx)}]
+        batches = [idxs[i:i + CHUNK] for i in range(0, len(idxs), CHUNK)]
+        for bn, batch in enumerate(batches, 1):
+            if len(batches) > 1:
+                print(f"   chunk {bn}/{len(batches)} ({len(batch)} questions)", flush=True)
+            labels = [items[i]["question"] for i in batch]
+            for g in cluster_once(topic, labels, f" chunk {bn}"):
+                groups.append({"canonical_question": g["canonical_question"],
+                               "members": [batch[n] for n in g["members"]]})
+
+        # Pass 2 — the same question asked in two different chunks lands as two
+        # canonical entries, so merge the canonicals themselves. A big topic can
+        # leave more canonicals than fit in one request, so this repeats
+        # (chunked) until they fit or stop reducing. Bounded at 3 rounds: past
+        # that the extra calls cost more than the fragmentation they remove.
+        rounds = 0
+        while len(batches) > 1 and len(groups) > 1 and rounds < 3:
+            rounds += 1
+            before = len(groups)
+            merge_batches = [groups[i:i + CHUNK] for i in range(0, len(groups), CHUNK)]
+            print(f"   merge round {rounds}: {before} canonical question(s) "
+                  f"in {len(merge_batches)} chunk(s)", flush=True)
+            rebuilt = []
+            for mb in merge_batches:
+                for m in cluster_once(topic, [g["canonical_question"] for g in mb], " merge"):
+                    members = []
+                    for n in m["members"]:
+                        members.extend(mb[n]["members"])
+                    if members:
+                        rebuilt.append({"canonical_question": m["canonical_question"],
+                                        "members": members})
+            groups = rebuilt
+            # Converged, or one request now covers everything: nothing more to gain.
+            if len(groups) >= before or len(groups) <= CHUNK and len(merge_batches) == 1:
                 break
-            except Exception as e:
-                print(f"  ⚠ cluster parse failed for {topic} (attempt {attempt + 1}): {e}")
-        if clusters is None:
-            print(f"  ⚠ giving up on {topic}; falling back to singletons")
-            clusters = [{"canonical_question": items[i]["question"], "members": [n]}
-                        for n, i in enumerate(idxs)]
-        assigned = set()
-        for c in clusters:
-            members = [idxs[n] for n in c.get("members", [])
-                       if isinstance(n, int) and 0 <= n < len(idxs) and n not in assigned]
-            assigned.update(n for n in c.get("members", []) if isinstance(n, int))
-            if members:
-                faqs.append({"canonical_question": c["canonical_question"], "topic": topic,
-                             "members": members})
-        for n, i in enumerate(idxs):        # anything the model dropped
-            if n not in assigned:
-                faqs.append({"canonical_question": items[i]["question"], "topic": topic, "members": [i]})
+
+        for g in groups:
+            faqs.append({"canonical_question": g["canonical_question"], "topic": topic,
+                         "members": g["members"]})
 
     # Persist raw-question -> canonical-question so downstream consumers (the
     # Call Intelligence dataset) reuse this exact clustering instead of
