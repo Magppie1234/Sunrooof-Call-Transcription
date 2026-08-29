@@ -173,20 +173,28 @@ create table if not exists call_detail (
 comment on table call_detail is
   'Heavy per-call fields, fetched by /api/call/[id] only when a call is opened. Never selected in list queries.';
 
--- KNOWN DATA INCONSISTENCY, surfaced by writing this foreign key.
--- qa_audits.json holds 6,260 unique audit records against 6,253 calls. Every
--- call has an audit, but seven audits reference call_ids absent from the
--- dataset:
+-- THE SEVEN-ROW GAP, INVESTIGATED AND RESOLVED (29 Aug 2026).
+-- Supabase holds 6,260 calls; qa_audits.json exports 6,260 audits; the dataset
+-- carries 6,253. The seven-row difference is these call_ids:
 --   887064000042182035  887064000044564591  887064000044968321
 --   887064000045149336  887064000045269324  887064000047428241
 --   887064000047613440
--- The FK will reject those seven rather than let them in unnoticed, which is
--- the point of having it. Before loading, decide which is true: these calls
--- were audited and later dropped by build_ci_dataset.py's filters (skip them,
--- log the count), or the dataset is missing calls it should contain (fix the
--- builder). Do not silently ON CONFLICT DO NOTHING them away — the "6,260-row
--- file holding 4,965 unique calls" incident began exactly this way, with a
--- count that looked plausible.
+--
+-- All seven are calls where Sarvam returned an EMPTY transcript — transcript
+-- "" and zero diarised entries, i.e. audio containing no recoverable speech.
+-- Both systems then behaved correctly and independently:
+--   * build_ci_dataset.py drops them at `if not entries: continue`, so they
+--     never reach the dashboard.
+--   * The audit pipeline's conversation gate classified all seven as
+--     context=no_contact, tier=NOT_SCORED, score=null — recorded, never graded.
+--
+-- So nothing is under-reported and no fix is needed. The two files disagree on
+-- membership only because the audit export keeps gated calls and the dataset
+-- does not. The loader should skip audits whose call_id is absent and LOG THE
+-- COUNT, expecting exactly 7; a different number means something changed and
+-- is worth stopping for. Do not reach for ON CONFLICT DO NOTHING — the
+-- "6,260-row file holding 4,965 unique calls" incident began exactly that way,
+-- with a count that looked plausible and a silent discard underneath.
 
 
 -- ============================================================================
