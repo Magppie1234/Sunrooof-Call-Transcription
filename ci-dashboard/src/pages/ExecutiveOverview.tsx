@@ -8,7 +8,7 @@ import { useAppState } from '../state/AppState';
 import {
   kpiSummary, dailyTrend, faqRows, objectionRows, segmentRows, callFunnel, emergingIssues, agentRows, allActions,
 } from '../lib/metrics';
-import { fmtINR, fmtInt, fmtPct, pctVal } from '../lib/format';
+import { fmtInt, fmtPct, pctVal } from '../lib/format';
 import { MIN_SAMPLE_SIZE } from '../config';
 
 const pctFmt = (v: number) => `${v.toFixed(1)}%`;
@@ -71,8 +71,6 @@ export default function ExecutiveOverview() {
         <KpiCard label="Critical complaints" prov="alerts.rules" value={cur.criticalComplaints} prev={prev.criticalComplaints} accent="var(--critical)" invertDelta onClick={() => drill({ outcome: 'Complaint raised', sentiment: 'negative' })} />
         <KpiCard label="Compliance alerts" prov="agent.compliance" value={cur.complianceAlerts} prev={prev.complianceAlerts} accent="var(--critical)" invertDelta onClick={() => drill({ compliance: 'flagged' })} />
         <KpiCard label="Call → opportunity conversion" prov="sales.funnelCrm" value={pctVal(cur.opportunities, cur.meaningful)} prev={pctVal(prev.opportunities, prev.meaningful)} format={pctFmt} denomNote={`of ${fmtInt(cur.meaningful)} meaningful · CRM-verified`} onClick={() => navigate('/sales')} />
-        <KpiCard label="Call → order conversion" prov="sales.revenue" value={pctVal(cur.orders, cur.meaningful)} prev={pctVal(prev.orders, prev.meaningful)} format={pctFmt} denomNote={`of ${fmtInt(cur.meaningful)} meaningful · CRM-verified`} accent="var(--good)" onClick={() => drill({ outcome: 'Order confirmed' })} />
-        <KpiCard label="Revenue influenced (verified CRM)" prov="sales.revenue" value={cur.revenue} prev={prev.revenue} format={fmtINR} denomNote={`${cur.revenueVerifiedOrders} verified orders`} accent="var(--good)" onClick={() => drill({ outcome: 'Order confirmed' })} />
       </div>
 
       <div className="section-title">Trends & drivers <span className="sub">{scopeNote(d, filters.preset)}</span></div>

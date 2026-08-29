@@ -35,12 +35,52 @@ function themeCounts(calls: CallRecord[], pickFn: (c: CallRecord) => string[]): 
   return [...m.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 8);
 }
 
+interface ThemeDrillState { title: string; matches: CallRecord[] }
+
+/** Every theme bar across this page drills into the same overlay: the exact
+ * calls behind that count, each linking straight to its record. */
+function ThemeDrillOverlay({ drill, onClose, onNavigate }: {
+  drill: ThemeDrillState; onClose: () => void; onNavigate: (callId: string) => void;
+}) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 50, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '60px 16px', overflowY: 'auto' }}
+      onClick={onClose}
+    >
+      <div style={{ width: 'min(640px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+        <Card title={drill.title} sub={`${drill.matches.length} call${drill.matches.length === 1 ? '' : 's'} — click any row to open the full record`}
+          right={<button className="btn small" onClick={onClose}>✕ Close</button>}>
+          {drill.matches.length === 0 ? <EmptyState message="No calls matched." /> : (
+            <div>
+              {drill.matches.map((c) => (
+                <div key={c.id} className="rankbar-row clickable" style={{ gridTemplateColumns: '1fr auto' }} onClick={() => onNavigate(c.id)}>
+                  <div className="rankbar-label">
+                    {c.customerName}
+                    <div className="cell-sub">{c.id} · {c.city || '—'} · {c.outcome}</div>
+                  </div>
+                  <Pill tone={sentimentToneFor(c)}>{c.sentiment ? c.sentiment.overall : 'n/a'}</Pill>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function sentimentToneFor(c: CallRecord): 'good' | 'critical' | 'neutral' {
+  if (!c.sentiment) return 'neutral';
+  return c.sentiment.overall === 'positive' ? 'good' : c.sentiment.overall === 'negative' ? 'critical' : 'neutral';
+}
+
 export default function CustomerVoice() {
   const { data: d, loading, error } = useFilteredData();
   const { filters } = useAppState();
   const drill = useDrill();
   const navigate = useNavigate();
   const [dim, setDim] = useState('region');
+  const [themeDrill, setThemeDrill] = useState<ThemeDrillState | null>(null);
 
   if (loading && !d) return <Loading label="Analysing customer sentiment…" />;
   if (error) return <ErrorState message={error} />;
@@ -61,6 +101,11 @@ export default function CustomerVoice() {
   const trend = dailyTrend(a, d.windows.currentStart, d.windows.currentEnd);
   const dimDef = DIMS.find((x) => x.key === dim)!;
   const segs = segmentRows(a, dimDef.fn);
+
+  const openTheme = (cardTitle: string, pickFn: (c: CallRecord) => string[], label: string) =>
+    setThemeDrill({ title: `${cardTitle}: "${label}"`, matches: a.filter((c) => pickFn(c).includes(label)) });
+  const themeBarItems = (cardTitle: string, pickFn: (c: CallRecord) => string[], color?: string) =>
+    themeCounts(a, pickFn).map((i) => ({ ...i, color, onClick: () => openTheme(cardTitle, pickFn, i.label) }));
 
   const segCols: Column<SegmentRow>[] = [
     { key: 'key', label: dimDef.label, render: (r) => <strong>{r.key}</strong>, sortVal: (r) => r.key },
@@ -111,20 +156,20 @@ export default function CustomerVoice() {
 
       <div className="section-title">What customers are telling us</div>
       <div className="three-col">
-        <Card title={<>Top appreciation themes <Prov k="voc.themes" /></>} sub="Calls where customers explicitly appreciated something">
-          <RankBars items={themeCounts(a, (c) => c.appreciationThemes).map((i) => ({ ...i, color: 'var(--good)' }))} />
+        <Card title={<>Top appreciation themes <Prov k="voc.themes" /></>} sub="Calls where customers explicitly appreciated something — click a theme to see the calls">
+          <RankBars items={themeBarItems('Appreciation', (c) => c.appreciationThemes, 'var(--good)')} />
         </Card>
-        <Card title={<>Top dissatisfaction themes <Prov k="voc.themes" /></>} sub="Calls with explicit dissatisfaction">
-          <RankBars items={themeCounts(a, (c) => c.dissatisfactionThemes).map((i) => ({ ...i, color: 'var(--serious)' }))} />
+        <Card title={<>Top dissatisfaction themes <Prov k="voc.themes" /></>} sub="Calls with explicit dissatisfaction — click a theme to see the calls">
+          <RankBars items={themeBarItems('Dissatisfaction', (c) => c.dissatisfactionThemes, 'var(--serious)')} />
         </Card>
-        <Card title={<>Product & feature requests <Prov k="voc.featureRequests" /></>} sub="Explicit asks captured from transcripts">
-          <RankBars items={themeCounts(a, (c) => c.featureRequests).map((i) => ({ ...i, color: 'var(--s7)' }))} />
+        <Card title={<>Product & feature requests <Prov k="voc.featureRequests" /></>} sub="Explicit asks captured from transcripts — click a request to see the calls">
+          <RankBars items={themeBarItems('Feature request', (c) => c.featureRequests, 'var(--s7)')} />
         </Card>
-        <Card title={<>Customer expectations <Prov k="voc.themes" /></>} sub="Stated expectations about process & timelines">
-          <RankBars items={themeCounts(a, (c) => c.expectations)} />
+        <Card title={<>Customer expectations <Prov k="voc.themes" /></>} sub="Stated expectations about process & timelines — click one to see the calls">
+          <RankBars items={themeBarItems('Expectation', (c) => c.expectations)} />
         </Card>
-        <Card title={<>Customer pain points <Prov k="voc.themes" /></>} sub="Problems customers described">
-          <RankBars items={themeCounts(a, (c) => c.painPoints).map((i) => ({ ...i, color: 'var(--serious)' }))} />
+        <Card title={<>Customer pain points <Prov k="voc.themes" /></>} sub="Problems customers described — click a pain point to see the calls">
+          <RankBars items={themeBarItems('Pain point', (c) => c.painPoints, 'var(--serious)')} />
         </Card>
         <Card title={<>Unresolved negative conversations <Prov k="sentiment.overall" /></>} sub="Ended negative with no resolution — protect these relationships">
           {unresolvedNeg.length === 0 ? <EmptyState message="None in this period." /> : (
@@ -157,6 +202,10 @@ export default function CustomerVoice() {
           {fmtInt(uniq(a.map((c) => c.customerId)).length)} unique customers across {fmtInt(a.length)} analysed calls. Sentiment labels are computed from transcripts only.
         </div>
       </Card>
+
+      {themeDrill && (
+        <ThemeDrillOverlay drill={themeDrill} onClose={() => setThemeDrill(null)} onNavigate={(callId) => navigate(`/calls/${callId}`)} />
+      )}
     </>
   );
 }

@@ -86,7 +86,6 @@ function buildActions(
       channel: pick(rng, ['Call', 'WhatsApp', 'Email', 'Visit'] as const),
       reason,
       transcriptRef: int(rng, 60, 400),
-      confidence: round(0.72 + rng() * 0.26, 2),
       status: completed ? 'completed' : status,
       slaStatus: completed ? (chance(rng, 0.8) ? 'met' : 'breached') : overdue ? 'overdue' : dueToday ? 'due_today' : 'on_track',
       crmTaskLinked: chance(rng, 0.55),
@@ -147,7 +146,7 @@ function buildTranscript(
   const scale = (durationSec - 15) / maxT;
   for (const s of segs) s.t = Math.round(s.t * scale);
   for (const f of faqs) f.t = Math.round(f.t * scale);
-  for (const o of objections) o.t = Math.round(o.t * scale);
+  for (const o of objections) if (o.t !== null) o.t = Math.round(o.t * scale);
   return segs;
 }
 
@@ -198,7 +197,7 @@ export function generateDataset(): MockDataset {
         id, dateTime, direction, durationSec,
         customerId: cust.id, customerName: cust.name, customerType: cust.type,
         employeeId: emp.id,
-        region: cust.geo.region, state: cust.geo.state, city: cust.geo.city, pincode: cust.geo.pin,
+        region: cust.geo.region, state: cust.geo.state, city: cust.geo.city,
         productSeries, language, leadSource, campaign,
         crmStage: pick(rng, CRM_STAGES), outcome: connected ? 'No requirement' : 'Not connected',
         connected, meaningful, transcribed, transcriptionConfidence, diarizationReliable: false,
@@ -208,7 +207,7 @@ export function generateDataset(): MockDataset {
         topics: [], appreciationThemes: [], dissatisfactionThemes: [], featureRequests: [], expectations: [], painPoints: [],
         faqs: [], objections: [], quality: null, talk: null, actions: [], commitments: [], risks: [],
         complianceFlags: [], entities: [], summary: transcribed ? 'Very short call — no meaningful conversation to analyse.' : 'Transcript unavailable (call not transcribed).',
-        transcript: [], aiConfidence: 0,
+        transcript: [],
         crm: { opportunityCreated: false, orderConfirmed: false, complaintOpen: false, revenueInfluenced: null, verified: false },
         hasRecording: connected,
       });
@@ -244,7 +243,6 @@ export function generateDataset(): MockDataset {
         sentimentAfter: status === 'answered' ? (chance(rng, 0.7) ? 'positive' : 'neutral') : status === 'partial' ? 'neutral' : (chance(rng, 0.55) ? 'negative' : 'neutral'),
         escalationNeeded: status === 'unanswered' && chance(rng, 0.3),
         t: 0,
-        confidence: round(0.7 + rng() * 0.29, 2),
       };
     });
 
@@ -260,7 +258,6 @@ export function generateDataset(): MockDataset {
         resolution,
         customerReaction: resolution === 'resolved' ? 'positive' : resolution === 'partial' ? 'neutral' : 'negative',
         t: 0,
-        confidence: round(0.68 + rng() * 0.3, 2),
       };
     });
 
@@ -309,7 +306,7 @@ export function generateDataset(): MockDataset {
       id, dateTime, direction, durationSec,
       customerId: cust.id, customerName: cust.name, customerType: cust.type,
       employeeId: emp.id,
-      region: cust.geo.region, state: cust.geo.state, city: cust.geo.city, pincode: cust.geo.pin,
+      region: cust.geo.region, state: cust.geo.state, city: cust.geo.city,
       productSeries, language, leadSource, campaign,
       crmStage: orderConfirmed ? 'Won' : pick(rng, CRM_STAGES.slice(0, 6)),
       outcome, connected, meaningful, transcribed, transcriptionConfidence, diarizationReliable,
@@ -352,7 +349,6 @@ export function generateDataset(): MockDataset {
         `${objections.length ? `Raised ${objections.length} objection(s), primary: ${objections[0].type}. ` : ''}` +
         `Call ended ${sentimentLabel(closing)}; outcome: ${outcome}.`,
       transcript,
-      aiConfidence: round(clamp(transcriptionConfidence - 0.05 + rng() * 0.12, 0.4, 0.99), 2),
       crm: {
         opportunityCreated, orderConfirmed, complaintOpen: outcome === 'Complaint raised',
         revenueInfluenced: orderConfirmed && crmVerified ? int(rng, 45, 180) * 10000 : null,

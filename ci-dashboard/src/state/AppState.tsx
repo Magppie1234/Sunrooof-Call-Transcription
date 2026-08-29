@@ -6,9 +6,9 @@ export type Role = 'Management' | 'Sales Manager' | 'Service Manager' | 'Quality
 /** Pages visible per role — see docs/10-rbac.md. */
 export const ROLE_PAGES: Record<Role, string[] | 'all'> = {
   Management: 'all',
-  'Sales Manager': ['/', '/voice', '/faqs', '/regions', '/sales', '/agents', '/actions', '/calls', '/alerts'],
+  'Sales Manager': ['/', '/voice', '/faqs', '/regions', '/sales', '/agents', '/actions', '/calls', '/advanced-qa', '/review-sets', '/alerts'],
   'Service Manager': ['/', '/voice', '/faqs', '/agents', '/actions', '/calls', '/alerts'],
-  'Quality Team': ['/voice', '/faqs', '/agents', '/calls', '/alerts', '/data'],
+  'Quality Team': ['/voice', '/faqs', '/agents', '/calls', '/advanced-qa', '/review-sets', '/alerts', '/data'],
   Agent: ['/voice', '/faqs', '/actions', '/calls'],
 };
 

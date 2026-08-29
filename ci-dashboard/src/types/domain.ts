@@ -87,7 +87,6 @@ export interface FaqHit {
   sentimentAfter: SentimentLabel;
   escalationNeeded: boolean;
   t: number;
-  confidence: number;
 }
 
 export interface ObjectionHit {
@@ -99,8 +98,9 @@ export interface ObjectionHit {
   technique: string;
   resolution: Resolution;
   customerReaction: SentimentLabel;
-  t: number;
-  confidence: number;
+  /** Seconds from call start, matched back to the diarised turn. Null when the
+   *  quoted statement could not be located in the transcript. */
+  t: number | null;
 }
 
 export interface NextAction {
@@ -116,7 +116,6 @@ export interface NextAction {
   channel: 'Call' | 'WhatsApp' | 'Email' | 'Visit';
   reason: string;
   transcriptRef: number | null; // segment timestamp
-  confidence: number;
   status: ActionStatus;
   slaStatus: SlaStatus;
   crmTaskLinked: boolean;
@@ -185,7 +184,6 @@ export interface CallRecord {
   region: string;
   state: string;
   city: string;
-  pincode: string;
   productSeries: string;
   language: string;
   leadSource: string;
@@ -225,9 +223,17 @@ export interface CallRecord {
   entities: { text: string; type: string }[];
   summary: string;
   transcript: TranscriptSegment[];
-  aiConfidence: number;
   crm: CrmSignals;
   hasRecording: boolean;
+  /** Zoho phonebridge URL. Real-data only; play via the local audio proxy
+   * (scripts/audio_proxy.mjs on :3000), which holds the session cookie
+   * server-side — never fetch this URL directly from the browser. */
+  recordingUrl?: string | null;
+  /** Whether an AI-generated summary note has ever reached Zoho for this
+   * call (bulk sync or the Update CRM button). Informational only — the
+   * button always re-checks Zoho's live state before writing anything. */
+  crmNoteSynced?: boolean;
+  crmTranscriptSynced?: boolean;
 }
 
 export type AlertSeverity = 'critical' | 'high' | 'medium';

@@ -46,6 +46,24 @@ export const DATA_ANCHOR: Date = (() => {
   return newest ? new Date(newest + 86400_000) : new Date();
 })();
 
+const toIsoDate = (d: Date) => d.toISOString().slice(0, 10);
+
+/** Bounds for the custom date-range picker — the actual first/last call date
+ * in the loaded dataset, so users can't pick an empty range outside it. */
+export const [DATASET_MIN_DATE, DATASET_MAX_DATE]: [string, string] = (() => {
+  let min = Infinity, max = -Infinity;
+  for (const c of data.calls) {
+    const t = new Date(c.dateTime).getTime();
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  if (!Number.isFinite(min)) {
+    const today = toIsoDate(new Date());
+    return [today, today];
+  }
+  return [toIsoDate(new Date(min)), toIsoDate(new Date(max))];
+})();
+
 class RealService implements DataService {
   sourceLabel = data.sourceLabel;
   isMock = false;

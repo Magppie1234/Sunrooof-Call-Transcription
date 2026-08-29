@@ -95,13 +95,12 @@ export interface FaqRow {
   positiveAfterPct: number;
   negativeAfterPct: number;
   escalations: number;
-  avgConfidence: number;
   regions: string[];
   recommendation: string;
 }
 
 export function faqRows(analysed: CallRecord[], analysedPrev: CallRecord[]): FaqRow[] {
-  const map = new Map<string, { row: FaqRow; customers: Set<string>; conf: number[]; resp: number[]; after: string[] }>();
+  const map = new Map<string, { row: FaqRow; customers: Set<string>; resp: number[]; after: string[] }>();
   for (const c of analysed) {
     // FAQ counted once per call per standardised question (no intra-call inflation)
     const seen = new Set<string>();
@@ -114,10 +113,10 @@ export function faqRows(analysed: CallRecord[], analysedPrev: CallRecord[]): Faq
           row: {
             category: f.category, standardized: f.standardized, sampleQuestion: f.originalQuestion,
             calls: 0, customers: 0, pctOfAnalysed: 0, prevCalls: 0, answered: 0, partial: 0, unanswered: 0,
-            avgResponseSec: null, positiveAfterPct: 0, negativeAfterPct: 0, escalations: 0, avgConfidence: 0,
+            avgResponseSec: null, positiveAfterPct: 0, negativeAfterPct: 0, escalations: 0,
             regions: [], recommendation: '',
           },
-          customers: new Set(), conf: [], resp: [], after: [],
+          customers: new Set(), resp: [], after: [],
         };
         map.set(f.standardized, e);
       }
@@ -127,7 +126,6 @@ export function faqRows(analysed: CallRecord[], analysedPrev: CallRecord[]): Faq
       if (f.responseTimeSec !== null) e.resp.push(f.responseTimeSec);
       e.after.push(f.sentimentAfter);
       if (f.escalationNeeded) e.row.escalations++;
-      e.conf.push(f.confidence);
       if (!e.row.regions.includes(c.region)) e.row.regions.push(c.region);
     }
   }
@@ -143,7 +141,6 @@ export function faqRows(analysed: CallRecord[], analysedPrev: CallRecord[]): Faq
     r.avgResponseSec = e.resp.length ? Math.round(avg(e.resp)) : null;
     r.positiveAfterPct = e.after.length ? (e.after.filter((a) => a === 'positive').length / e.after.length) * 100 : 0;
     r.negativeAfterPct = e.after.length ? (e.after.filter((a) => a === 'negative').length / e.after.length) * 100 : 0;
-    r.avgConfidence = avg(e.conf);
     const unansweredShare = r.calls ? r.unanswered / r.calls : 0;
     r.recommendation = unansweredShare > 0.3
       ? 'Add to knowledge base + run team training; high unanswered rate.'

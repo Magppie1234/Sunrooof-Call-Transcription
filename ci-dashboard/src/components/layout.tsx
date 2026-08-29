@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { BRAND } from '../config';
-import { PRESET_LABEL, type DatePreset, type FilterState } from '../lib/filters';
+import { DIMENSION_KEYS, DIMENSION_LABELS, PRESET_LABEL, type DatePreset, type DimensionKey, type FilterState } from '../lib/filters';
 import { EMPLOYEES, GEO, PRODUCT_SERIES, LANGUAGES, LEAD_SOURCES } from '../data/taxonomy';
 import { useAppState, ROLE_PAGES, type Role } from '../state/AppState';
 import { service, useAlerts } from '../state/useData';
 import { fmtDate, fmtDateTime, shortName } from '../lib/format';
-import { DATA_ANCHOR, DATASET_CALL_COUNT } from '../services/realService';
+import { DATA_ANCHOR, DATASET_CALL_COUNT, DATASET_MIN_DATE, DATASET_MAX_DATE } from '../services/realService';
+
+const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 const NAV: { path: string; label: string; icon: string; group: string }[] = [
   { path: '/', label: 'Executive Overview', icon: '◧', group: 'Insights' },
@@ -17,6 +19,8 @@ const NAV: { path: string; label: string; icon: string; group: string }[] = [
   { path: '/agents', label: 'Agent Quality', icon: '★', group: 'Performance' },
   { path: '/actions', label: 'Next-Action Tracker', icon: '✓', group: 'Performance' },
   { path: '/calls', label: 'Call Explorer', icon: '≡', group: 'Performance' },
+  { path: '/advanced-qa', label: 'Advanced QA', icon: '◆', group: 'Performance' },
+  { path: '/review-sets', label: 'Review Sets', icon: '⊞', group: 'Performance' },
   { path: '/alerts', label: 'Alerts & Escalations', icon: '⚑', group: 'Operations' },
   { path: '/data', label: 'Data Quality & Config', icon: '⚙', group: 'Operations' },
 ];
@@ -98,6 +102,44 @@ function Select({ value, onChange, options, placeholder, label }: {
   );
 }
 
+const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** Filter values are stored as raw ids/codes; show what the user would recognise. */
+function chipValue(k: DimensionKey, v: string): string {
+  if (k === 'employee') return shortName(EMPLOYEES.find((e) => e.id === v)?.name ?? v);
+  if (k === 'compliance') return v === 'flagged' ? 'flagged only' : v;
+  if (k === 'search') return `“${truncate(v, 28)}”`;
+  return truncate(v, 46);
+}
+
+/**
+ * One chip per active filter, each clearable on its own.
+ *
+ * Drill-downs (useDrill) write straight into the global filter state and it
+ * survives navigation, but several of the keys they set — city, outcome,
+ * campaign, actionStatus, search — have no control in the bar above. Without
+ * this row a drill leaves every page narrowed with no visible cause and, if it
+ * is the only filter set, no way back short of reloading the page.
+ */
+function ActiveFilterChips() {
+  const { filters, setFilters } = useAppState();
+  const active = DIMENSION_KEYS.filter((k) => filters[k]);
+  if (active.length === 0) return null;
+  return (
+    <div className="filter-chips">
+      <span className="chips-label">Filtering by</span>
+      {active.map((k) => (
+        <button key={k} className="filter-chip" title={`Clear ${DIMENSION_LABELS[k]} filter`}
+          onClick={() => setFilters({ [k]: '' } as Partial<FilterState>)}>
+          <span className="chip-key">{DIMENSION_LABELS[k]}</span>
+          <span className="chip-val">{chipValue(k, filters[k])}</span>
+          <span className="chip-x" aria-hidden>✕</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TopBar() {
   const { filters, setFilters, resetFilters, role, savedViews, saveView, applyView, deleteView, exploreMode, setExploreMode } = useAppState();
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
@@ -108,14 +150,39 @@ export function TopBar() {
   const regions = [...new Set(GEO.map((g) => g.region))];
   const states = [...new Set(GEO.filter((g) => !filters.region || g.region === filters.region).map((g) => g.state))];
   const teams = [...new Set(EMPLOYEES.map((e) => e.team))];
-  const activeCount = (['region', 'state', 'team', 'employee', 'product', 'direction', 'language', 'sentiment', 'intent', 'customerType', 'leadSource', 'faqCategory', 'faqQuestion', 'faqStatus', 'faqSentimentAfter', 'objection', 'compliance'] as (keyof FilterState)[])
-    .filter((k) => filters[k]).length;
+  // Derived from DIMENSION_KEYS rather than a hand-kept list: a filter missing
+  // from the count is one the Reset button never offers to clear.
+  const activeCount = DIMENSION_KEYS.filter((k) => filters[k]).length;
 
   return (
     <div className="topbar">
       <div className="filterbar">
-        <Select value={filters.preset} onChange={(v) => setFilters({ preset: (v || '30d') as DatePreset })}
+        <Select value={filters.preset} onChange={(v) => {
+            const preset = (v || '30d') as DatePreset;
+            // First time switching to Custom, seed sensible defaults (last 15
+            // days of the dataset) rather than leaving the pickers empty.
+            if (preset === 'custom' && !filters.customStart && !filters.customEnd) {
+              const end = DATA_ANCHOR;
+              const start = new Date(end.getTime() - 15 * 86400_000);
+              setFilters({ preset, customStart: isoDate(start), customEnd: isoDate(end) });
+            } else {
+              setFilters({ preset });
+            }
+          }}
           options={Object.entries(PRESET_LABEL)} placeholder="Last 30 days" label="Period" />
+        {filters.preset === 'custom' && (
+          <>
+            <input type="date" className="filter-select is-set" aria-label="From date"
+              min={DATASET_MIN_DATE} max={filters.customEnd || DATASET_MAX_DATE}
+              value={filters.customStart}
+              onChange={(e) => setFilters({ customStart: e.target.value })} />
+            <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>to</span>
+            <input type="date" className="filter-select is-set" aria-label="To date"
+              min={filters.customStart || DATASET_MIN_DATE} max={DATASET_MAX_DATE}
+              value={filters.customEnd}
+              onChange={(e) => setFilters({ customEnd: e.target.value })} />
+          </>
+        )}
         <Select value={filters.region} onChange={(v) => setFilters({ region: v, state: '', city: '' })} options={regions} placeholder="All regions" />
         <Select value={filters.state} onChange={set('state')} options={states} placeholder="All states" />
         <Select value={filters.team} onChange={(v) => setFilters({ team: v, employee: '' })} options={teams} placeholder="All teams" />
@@ -148,6 +215,7 @@ export function TopBar() {
         <span className="dataset-total">Dataset: <strong>{DATASET_CALL_COUNT} total calls</strong></span>
         Last refresh: {refreshedAt ? fmtDateTime(refreshedAt) : '…'}
       </div>
+      <ActiveFilterChips />
     </div>
   );
 }

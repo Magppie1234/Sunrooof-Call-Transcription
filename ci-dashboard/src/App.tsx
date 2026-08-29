@@ -12,6 +12,8 @@ import CallExplorer from './pages/CallExplorer';
 import CallDetail from './pages/CallDetail';
 import Alerts from './pages/Alerts';
 import DataQuality from './pages/DataQuality';
+import AdvancedQa from './pages/AdvancedQa';
+import ReviewScenarios from './pages/ReviewScenarios';
 import type { ReactNode } from 'react';
 
 /** Blocks pages outside the current role's allowed set (docs/10-rbac.md). */
@@ -40,6 +42,8 @@ export default function App() {
             <Route path="/calls" element={<Guard path="/calls"><CallExplorer /></Guard>} />
             <Route path="/calls/:id" element={<Guard path="/calls"><CallDetail /></Guard>} />
             <Route path="/alerts" element={<Guard path="/alerts"><Alerts /></Guard>} />
+            <Route path="/review-sets" element={<Guard path="/review-sets"><ReviewScenarios /></Guard>} />
+            <Route path="/advanced-qa" element={<Guard path="/advanced-qa"><AdvancedQa /></Guard>} />
             <Route path="/data" element={<Guard path="/data"><DataQuality /></Guard>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
