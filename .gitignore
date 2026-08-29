@@ -22,3 +22,13 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.venv-win/
+
+# Regenerable dashboard exports — rebuilt from Supabase by
+# export_qa_audits_for_dashboard.py in seconds with no API calls. At 60 MB this
+# is past GitHub's warning threshold and would re-enter history on every refresh.
+ci-dashboard/src/data/real/qa_audits.json
+
+# Stale 209 MB duplicate of the dashboard, kept on disk pending a decision on it.
+# Its docs/ are byte-identical to ci-dashboard/docs/, which IS tracked.
+ci-dashboard-demo/
