@@ -6,3 +6,7 @@
 .env.keys
 .env.local
 .env.*.local
+
+# Database dumps: full customer PII plus auth.users. Never commit these.
+# They live here for convenience; the durable copy belongs on the offline drive.
+backups/
