@@ -1,0 +1,67 @@
+-- ============================================================================
+-- call_action_state: make the view enforce RLS on the table beneath it
+--
+-- WHY
+-- A Postgres view executes with the privileges of its OWNER, not of the role
+-- running the query, unless security_invoker is set. call_action_state was
+-- created in 20260829105655_dashboard_tables.sql without it, so it reads
+-- call_actions as the migration's owner and row-level security on call_actions
+-- does not apply to anything reading through the view.
+--
+-- This is harmless as it stands: call_actions is empty, RLS is on with no
+-- policies, and neither anon nor authenticated has been granted anything. It
+-- stops being harmless the moment the Agent-role policy lands, because the view
+-- is the documented read path — its own comment says "Read this for current
+-- state; write to call_actions." A policy scoped to
+--
+--     employee_id = auth.jwt() ->> 'employee_id'
+--
+-- would be enforced on the table and bypassed by every read that goes through
+-- the view. Silently: an over-permissive read returns more rows, not an error,
+-- so nothing downstream has any reason to notice.
+--
+-- security_invoker makes the view run as the querying role, so RLS applies
+-- normally. Postgres 15+; this project is on 17.6.
+--
+-- ORDERING — this must land BEFORE the policies, not after
+-- Applying the policies first would open a window in which per-agent data is
+-- readable through the view by anyone holding a session. The window is the
+-- point of fixing it now, on Sunday, rather than alongside Monday's policies.
+--
+-- WHAT THIS DOES NOT DO
+-- It does not grant anything. With RLS on and no policies, the view still
+-- returns nothing to anon or authenticated after this runs — which is the
+-- intended state until the policies land. service_role continues to bypass RLS
+-- and is unaffected, so the loader and any service-role reads keep working.
+--
+-- TO DRY-RUN BEFORE APPLYING
+--     begin;  <body below>  rollback;
+-- Postgres runs DDL transactionally, so a syntax error surfaces and the
+-- rollback leaves the database as it was.
+-- ============================================================================
+
+alter view call_action_state set (security_invoker = true);
+
+comment on view call_action_state is
+  'Latest event per (call_id, kind). Read this for current state; write to call_actions. security_invoker is on, so RLS on call_actions applies to reads through this view — without it a view runs as its owner and silently bypasses the Agent-role policy.';
+
+-- ============================================================================
+-- Verification — run after applying
+-- ============================================================================
+-- The setting is recorded in pg_class.reloptions for the view:
+--
+--   select relname, reloptions
+--     from pg_class
+--    where relname = 'call_action_state';
+--   -- call_action_state | {security_invoker=true}
+--
+-- A null or missing reloptions means this did NOT take effect, whatever the
+-- CLI reported. Check the value, not the exit code.
+--
+-- Behavioural check, once policies and a test user exist — as an Agent role,
+-- these two must return the same count. If the view returns more than the
+-- table, security_invoker is not in effect:
+--
+--   select count(*) from call_actions;
+--   select count(*) from call_action_state;
+-- ============================================================================
