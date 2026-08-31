@@ -6,7 +6,7 @@ import { EMPLOYEES, GEO, PRODUCT_SERIES, LANGUAGES, LEAD_SOURCES } from '../data
 import { useAppState, ROLE_PAGES, type Role } from '../state/AppState';
 import { service, useAlerts } from '../state/useData';
 import { fmtDate, fmtDateTime, shortName } from '../lib/format';
-import { DATA_ANCHOR, DATASET_CALL_COUNT, DATASET_MIN_DATE, DATASET_MAX_DATE } from '../services/realService';
+import { useCorpus } from '../state/CorpusMetaProvider';
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -29,6 +29,7 @@ const ROLES: Role[] = ['Management', 'Sales Manager', 'Service Manager', 'Qualit
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { role, setRole } = useAppState();
+  const { anchor } = useCorpus();
   const { data: alerts } = useAlerts();
   const openCritical = alerts?.filter((a) => a.status === 'open' && a.severity === 'critical').length ?? 0;
   const allowed = ROLE_PAGES[role];
@@ -73,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : (
             <div className="live-banner">
               <strong>Live data:</strong> {service.sourceLabel}. Insights are text-based (transcripts only — no voice-tone analysis).
-              Periods run relative to the snapshot end date ({fmtDate(DATA_ANCHOR.toISOString())}), not today.
+              Periods run relative to the snapshot end date ({fmtDate(anchor.toISOString())}), not today.
               <span className="prov-legend" style={{ marginLeft: 'auto' }}>
                 <span className="item"><span className="prov-dot real" /> real</span>
                 <span className="item"><span className="prov-dot partial" /> partial</span>
@@ -142,6 +143,7 @@ function ActiveFilterChips() {
 
 export function TopBar() {
   const { filters, setFilters, resetFilters, role, savedViews, saveView, applyView, deleteView, exploreMode, setExploreMode } = useAppState();
+  const { anchor, callCount, minDate, maxDate } = useCorpus();
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
   useEffect(() => { service.lastRefresh().then(setRefreshedAt); }, []);
@@ -162,7 +164,7 @@ export function TopBar() {
             // First time switching to Custom, seed sensible defaults (last 15
             // days of the dataset) rather than leaving the pickers empty.
             if (preset === 'custom' && !filters.customStart && !filters.customEnd) {
-              const end = DATA_ANCHOR;
+              const end = anchor;
               const start = new Date(end.getTime() - 15 * 86400_000);
               setFilters({ preset, customStart: isoDate(start), customEnd: isoDate(end) });
             } else {
@@ -173,12 +175,12 @@ export function TopBar() {
         {filters.preset === 'custom' && (
           <>
             <input type="date" className="filter-select is-set" aria-label="From date"
-              min={DATASET_MIN_DATE} max={filters.customEnd || DATASET_MAX_DATE}
+              min={minDate} max={filters.customEnd || maxDate}
               value={filters.customStart}
               onChange={(e) => setFilters({ customStart: e.target.value })} />
             <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>to</span>
             <input type="date" className="filter-select is-set" aria-label="To date"
-              min={filters.customStart || DATASET_MIN_DATE} max={DATASET_MAX_DATE}
+              min={filters.customStart || minDate} max={maxDate}
               value={filters.customEnd}
               onChange={(e) => setFilters({ customEnd: e.target.value })} />
           </>
@@ -212,7 +214,7 @@ export function TopBar() {
       </button>
       <div className="refresh-note">
         {role !== 'Management' && <span style={{ marginRight: 8 }}>Role: <strong>{role}</strong></span>}
-        <span className="dataset-total">Dataset: <strong>{DATASET_CALL_COUNT} total calls</strong></span>
+        <span className="dataset-total">Dataset: <strong>{callCount} total calls</strong></span>
         Last refresh: {refreshedAt ? fmtDateTime(refreshedAt) : '…'}
       </div>
       <ActiveFilterChips />

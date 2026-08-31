@@ -1,0 +1,11 @@
+{
+  "name": "sunrooof-call-intelligence-api",
+  "private": true,
+  "type": "module",
+  "description": "Vercel serverless functions for the CI dashboard. The React app is a separate package under ci-dashboard/; this root package exists so Vercel installs dependencies for /api.",
+  "engines": {
+    "node": ">=20"
+  },
+  "comment": "No dependencies on purpose. The routes talk to PostgREST over global fetch, which Node 20+ provides, so Vercel has nothing to install for /api and there is no lockfile to drift. @supabase/supabase-js would add a client whose only job here would be to build the same URLs.",
+  "dependencies": {}
+}

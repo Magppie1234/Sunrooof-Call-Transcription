@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHead } from '../components/layout';
-import { Card, KpiCard, Pill, DataTable, EmptyState, exportCsv, type Column, type PillTone } from '../components/ui';
+import { Card, KpiCard, Pill, DataTable, EmptyState, Loading, exportCsv, type Column, type PillTone } from '../components/ui';
 import { fmtInt } from '../lib/format';
-import qaData from '../data/real/qa_audits.slim.json';
+import { service } from '../state/useData';
 import changeData from '../data/real/scorecard_change_review.json';
 
 /**
  * Advanced QA — the 100-point SUNROOOF PSM scorecard.
+ *
+ * The audit set arrives from the service rather than a JSON import. It is
+ * 9.98 MB and was the last large file in the build: a lazy route, so never in
+ * the first paint, but still uploaded to Vercel and still served whole to
+ * anyone who opened the page. In live mode it now comes from GET /api/qa, and
+ * vite.config.ts aliases the snapshot out of the bundle entirely.
+ *
+ * It is 6,260 audits against the dataset's 6,253 calls, and that is correct —
+ * see data/qaAudits.ts.
  *
  * Deliberately independent of the global date/dimension filters. Audited calls
  * are processed in call-id order, which starts in June, while the global filter
@@ -35,8 +44,6 @@ interface QaData {
   model: string; scorecard: string; calls: QaCall[];
 }
 
-const DATA = qaData as unknown as QaData;
-
 interface CritChange { criterion: number; name: string; before: number; after: number; max: number;
   verdict?: string; missed?: string[]; partial?: string[]; unknown?: string[];
   metCount?: number; totalPoints?: number;
@@ -59,7 +66,46 @@ const TIER_ORDER = ['GOLD', 'SILVER', 'BRONZE', 'DEVELOPING', 'AT_RISK', 'NOT_SC
 const mins = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const text = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
+/**
+ * Loads the audit set, then hands it to the page.
+ *
+ * Split in two so the view below can go on treating the data as present and
+ * keep its hooks unconditional. Every figure on the page is computed from the
+ * whole set, so there is nothing useful to render before it arrives.
+ */
 export default function AdvancedQa() {
+  const [data, setData] = useState<QaData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    service.getQaAudits()
+      .then((d) => { if (!cancelled) setData(d as unknown as QaData); })
+      .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (error) {
+    return (
+      <>
+        <PageHead title="Advanced QA — PSM Scorecard" />
+        <Card title="Could not load the scorecard audits">
+          <p style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 10 }}>
+            No figures are shown rather than partial ones: every number on this page —
+            the tier counts, the mean, the auto-zero rate — is computed over the whole
+            audit set, so an incomplete read would be quietly low rather than obviously
+            broken.
+          </p>
+          <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap', color: 'var(--ink-2)' }}>{error}</pre>
+        </Card>
+      </>
+    );
+  }
+  if (!data) return <Loading label="Loading scorecard audits…" />;
+  return <AdvancedQaView data={data} />;
+}
+
+function AdvancedQaView({ data: DATA }: { data: QaData }) {
   const [tier, setTier] = useState('');
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<QaCall | null>(null);
@@ -71,7 +117,7 @@ export default function AdvancedQa() {
       if (!q) return true;
       return `${c.id} ${c.agent ?? ''} ${c.customer ?? ''} ${c.summary}`.toLowerCase().includes(q);
     });
-  }, [tier, search]);
+  }, [DATA, tier, search]);
 
   const scored = DATA.calls.filter((c) => c.score !== null);
   const notScored = DATA.calls.length - scored.length;
