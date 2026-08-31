@@ -7,6 +7,7 @@
 import type { AlertItem, CallRecord, Employee, NextAction, ActionStatus } from '../types/domain';
 import type { FilterState, FilteredData } from '../lib/filters';
 import type { CorpusMeta } from '../data/corpusMeta';
+import type { QaAuditSet } from '../data/qaAudits';
 
 export interface DataService {
   /** Human-readable label of the backing source, shown in the UI. */
@@ -17,6 +18,12 @@ export interface DataService {
    * render. Resolved once by CorpusMetaProvider; nothing else should call it.
    */
   getMeta(): Promise<CorpusMeta>;
+  /**
+   * The PSM scorecard audits. Its own dataset with its own generatedAt, kept
+   * separate from the call dataset so it can be regenerated while the audit is
+   * still running — and 6,260 rows against the call list's 6,253.
+   */
+  getQaAudits(): Promise<QaAuditSet>;
   lastRefresh(): Promise<string>;
   getFiltered(filters: FilterState): Promise<FilteredData>;
   getCall(id: string): Promise<CallRecord | null>;

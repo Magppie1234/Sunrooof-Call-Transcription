@@ -30,6 +30,8 @@ import type { FilterState, FilteredData } from '../lib/filters';
 import { applyFilters } from '../lib/filters';
 import { deriveAlerts } from '../lib/alerts';
 import { corpusFromCalls, deriveCorpus, type Corpus, type CorpusMeta, type Taxonomy } from '../data/corpusMeta';
+import { loadQaSnapshot } from '../data/real/qaSnapshot';
+import type { QaAuditSet } from '../data/qaAudits';
 import type { DataService } from './types';
 
 interface Dataset {
@@ -98,6 +100,8 @@ class RealService implements DataService {
   }
 
   async getMeta(): Promise<CorpusMeta> { return (await this.load()).meta; }
+
+  getQaAudits(): Promise<QaAuditSet> { return loadQaSnapshot(); }
 
   async lastRefresh() { return (await this.load()).generatedAt; }
 

@@ -50,6 +50,7 @@ const TYPES = {
 function routeFor(pathname) {
   if (pathname === '/api/meta') return { file: 'api/meta.js', params: {} };
   if (pathname === '/api/calls') return { file: 'api/calls.js', params: {} };
+  if (pathname === '/api/qa') return { file: 'api/qa.js', params: {} };
   const m = /^\/api\/call\/([^/]+)$/.exec(pathname);
   if (m) return { file: 'api/call/[id].js', params: { id: decodeURIComponent(m[1]) } };
   return null;

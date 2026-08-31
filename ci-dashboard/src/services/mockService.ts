@@ -10,6 +10,8 @@ import { deriveAlerts } from '../lib/alerts';
 import { generateDataset } from '../data/mock/generate';
 import { EMPLOYEES, GEO, PRODUCT_SERIES, LANGUAGES, LEAD_SOURCES } from '../data/mock/taxonomies';
 import { corpusFromCalls, type CorpusMeta } from '../data/corpusMeta';
+import { loadQaSnapshot } from '../data/real/qaSnapshot';
+import type { QaAuditSet } from '../data/qaAudits';
 import type { DataService } from './types';
 
 const latency = () => new Promise<void>((r) => setTimeout(r, 120 + Math.random() * 180));
@@ -50,6 +52,11 @@ class MockService implements DataService {
       },
     });
   }
+
+  // The mock generator produces no scorecard audits, and Advanced QA has always
+  // read the real ones: the page is independent of the global filters and of the
+  // mode by design. Left as it was rather than quietly emptied.
+  getQaAudits(): Promise<QaAuditSet> { return loadQaSnapshot(); }
 
   async lastRefresh() { return this.dataset.generatedAt; }
 

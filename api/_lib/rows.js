@@ -126,3 +126,32 @@ export function rowToMeta(row, employees) {
     taxonomy: row.taxonomy ?? {},
   };
 }
+
+/** qa_audits row -> the audit shape qa_audits.slim.json holds. */
+export function rowToAudit(row) {
+  return {
+    ...(row.payload ?? {}),
+    id: row.call_id,
+    score: row.score,
+    tier: row.tier,
+    status: row.status,
+  };
+}
+
+/**
+ * qa_audit_run row -> the wrapper AdvancedQa.tsx reads for its header.
+ *
+ * generatedAt is passed through as the stored TEXT. The page prints its first
+ * sixteen characters and the value carries a +0530 offset, so anything that
+ * normalises it to UTC moves the displayed time back five and a half hours
+ * without erroring.
+ */
+export function rowToAuditRun(row) {
+  return {
+    generatedAt: row.generated_at,
+    corpusSize: row.corpus_size,
+    auditedCount: row.audited_count,
+    model: row.model,
+    scorecard: row.scorecard,
+  };
+}

@@ -33,6 +33,7 @@ import type { FilterState, FilteredData } from '../lib/filters';
 import { applyFilters } from '../lib/filters';
 import { deriveAlerts } from '../lib/alerts';
 import { deriveCorpus, type Corpus, type CorpusMeta } from '../data/corpusMeta';
+import type { QaAuditSet } from '../data/qaAudits';
 import type { DataService } from './types';
 
 /** Shape of GET /api/call/[id] — identical to public/data/detail/<id>.json. */
@@ -42,6 +43,15 @@ interface CallDetailFile {
   entities: CallRecord['entities'] | null;
   recordingUrl: string | null;
   qa: unknown | null;
+}
+
+interface QaPage {
+  run: Omit<QaAuditSet, 'calls'>;
+  audits: unknown[];
+  count: number;
+  total: number;
+  offset: number;
+  nextOffset: number | null;
 }
 
 interface CallsPage {
@@ -65,6 +75,13 @@ const PAGE = 500;
  */
 const CONCURRENCY = 4;
 
+/**
+ * Audits per request. Larger than the call page because an audit row is 1,670
+ * bytes against a call's 3,871 — measured — so 1,000 of them is 1.6 MB, and
+ * 1,000 is Supabase's own per-response ceiling.
+ */
+const QA_PAGE = 1000;
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } });
   if (!res.ok) {
@@ -87,6 +104,7 @@ class LiveService implements DataService {
   isMock = false;
 
   private metaPromise: Promise<CorpusMeta> | null = null;
+  private qaPromise: Promise<QaAuditSet> | null = null;
   private corpusPromise: Promise<{ calls: CallRecord[]; corpus: Corpus }> | null = null;
   private detailCache = new Map<string, CallRecord>();
   private alertOverrides = new Map<string, AlertItem['status']>();
@@ -139,6 +157,39 @@ class LiveService implements DataService {
       return { calls, corpus: deriveCorpus(meta) };
     })();
     return this.corpusPromise;
+  }
+
+  /**
+   * The 6,260 scorecard audits, paged. Its own dataset with its own stamp, and
+   * seven rows larger than the call list — see data/qaAudits.ts.
+   *
+   * Cached like the corpus: Advanced QA filters, sorts, searches and exports
+   * over the whole set in the browser, because it is independent of the global
+   * date filter by design.
+   */
+  getQaAudits(): Promise<QaAuditSet> {
+    this.qaPromise ??= (async () => {
+      const first = await getJson<QaPage>(`/api/qa?limit=${QA_PAGE}&offset=0`);
+      const offsets: number[] = [];
+      for (let o = first.count; o < first.total; o += QA_PAGE) offsets.push(o);
+
+      const audits = [...first.audits];
+      for (let i = 0; i < offsets.length; i += CONCURRENCY) {
+        const wave = await Promise.all(offsets.slice(i, i + CONCURRENCY).map((o) =>
+          getJson<QaPage>(`/api/qa?limit=${QA_PAGE}&offset=${o}`)));
+        for (const p of wave) audits.push(...p.audits);
+      }
+
+      // Same rule as the corpus read: a short page count would render an
+      // Advanced QA page whose tier counts and mean score are all quietly low.
+      if (audits.length !== first.total) {
+        throw new Error(
+          `/api/qa returned ${audits.length} audits for a stated total of ${first.total}. ` +
+          `Refusing to report scorecard figures from an incomplete read.`);
+      }
+      return { ...first.run, calls: audits };
+    })();
+    return this.qaPromise;
   }
 
   async lastRefresh() { return (await this.getMeta()).generatedAt; }

@@ -65,6 +65,10 @@ EXPECT_SCORED = 4342
 EXPECT_ORPHAN_AUDITS = 7
 EXPECT_EMPLOYEES = 17
 EXPECT_GEO = 456
+# The audit set is SEVEN ROWS LARGER than the dataset: calls where Sarvam
+# returned an empty transcript are dropped by build_ci_dataset.py and kept,
+# ungraded, by the audit pipeline. Both are right. See EXPECT_ORPHAN_AUDITS.
+EXPECT_AUDITS = 6260
 
 # The dashboard anchors its default period to the newest call plus one day, NOT
 # to midnight. The calendar-day version of this range returns 4,858 — close
@@ -220,6 +224,48 @@ def call_row(call, audit, round_scores):
 # goes to qa_meta, by difference — so an audit field added upstream is carried
 # rather than dropped, the same way payload works in dashboard_calls.
 AUDIT_OWN_COLUMNS = ("criteria", "conduct", "redFlags", "reviewReasons")
+
+
+# criteria and conduct are the heavy per-criterion fields — 46 MB across the
+# corpus — and live in call_detail, read only when one audit is opened. Same
+# split build_slim_dataset.py makes for the static files.
+AUDIT_HEAVY_FIELDS = ("criteria", "conduct")
+# Typed on qa_audits; everything else falls through to payload.
+AUDIT_TYPED = {"score": "score", "tier": "tier", "status": "status"}
+
+
+def audit_rows(audits):
+    """One row per audited call, all 6,260 — including the seven with no
+    dashboard_calls row. Those are the reason qa_audits has no foreign key."""
+    rows = []
+    for a in audits.values():
+        payload = {k: v for k, v in a.items()
+                   if k not in AUDIT_HEAVY_FIELDS and k not in AUDIT_TYPED and k != "id"}
+        rows.append({
+            "call_id": a["id"],
+            "score": a.get("score"),
+            "tier": a.get("tier"),
+            "status": a.get("status"),
+            "payload": payload,
+        })
+    return rows
+
+
+def audit_run_row(audit_file):
+    """The wrapper AdvancedQa.tsx reads for its header.
+
+    generated_at goes in as the RAW STRING. The page prints its first sixteen
+    characters, and the value carries a +0530 offset; normalised to UTC it would
+    render five and a half hours early with nothing raising an error.
+    """
+    return {
+        "id": True,
+        "generated_at": audit_file["generatedAt"],
+        "corpus_size": audit_file["corpusSize"],
+        "audited_count": audit_file["auditedCount"],
+        "model": audit_file["model"],
+        "scorecard": audit_file["scorecard"],
+    }
 
 
 def employee_rows(dataset):
@@ -467,6 +513,10 @@ def verify(session):
         ("dashboard_employees", "dashboard_employees",
          {"select": "employee_id"}, EXPECT_EMPLOYEES),
         ("dashboard_snapshot", "dashboard_snapshot", {"select": "id"}, 1),
+        ("qa_audits", "qa_audits", {"select": "call_id"}, EXPECT_AUDITS),
+        ("qa_audits scored", "qa_audits",
+         {"select": "call_id", "score": "not.is.null"}, EXPECT_SCORED),
+        ("qa_audit_run", "qa_audit_run", {"select": "id"}, 1),
     ]
     ok = True
     for label, table, params, expected in checks:
@@ -524,7 +574,7 @@ def main():
                    help="run the verification counts against Supabase and exit")
     p.add_argument("--allow-score-rounding", action="store_true",
                    help="accept that fractional qa_score values are rounded into the integer column")
-    p.add_argument("--only", choices=("all", "calls", "detail", "meta"), default="all",
+    p.add_argument("--only", choices=("all", "calls", "detail", "meta", "qa"), default="all",
                    help="load one table group instead of everything. call_detail is 97 MB and "
                         "several minutes; reloading it to change 17 employee rows is waste. "
                         "Verification always runs in full, whatever was loaded.")
@@ -547,7 +597,8 @@ def main():
     print(f"[read] {args.audits.relative_to(BASE)}")
     dataset = json.loads(args.dataset.read_text(encoding="utf-8"))
     calls = dataset["calls"]
-    audits = {a["id"]: a for a in json.loads(args.audits.read_text(encoding="utf-8"))["calls"]}
+    audit_file = json.loads(args.audits.read_text(encoding="utf-8"))
+    audits = {a["id"]: a for a in audit_file["calls"]}
 
     print("\n[preflight]")
     qa_score_fmt = column_format(session, "dashboard_calls", "qa_score")
@@ -566,6 +617,8 @@ def main():
     detail_rows = [detail_row(c, audits.get(c["id"])) for c in calls]
     emp_rows = employee_rows(dataset)
     snap = snapshot_row(dataset)
+    qa_rows = audit_rows(audits)
+    qa_run = audit_run_row(audit_file)
 
     calls_mb = len(json.dumps(call_rows)) / 1e6
     detail_mb = len(json.dumps(detail_rows)) / 1e6
@@ -575,6 +628,9 @@ def main():
     print(f"[plan] call_detail      {len(detail_rows):,} rows, {detail_mb:.1f} MB")
     print(f"[plan] call_actions     0 rows - append-only, nothing to backfill")
     print(f"[plan] dashboard_employees {len(emp_rows):,} rows")
+    qa_mb = len(json.dumps(qa_rows)) / 1e6
+    print(f"[plan] qa_audits         {len(qa_rows):,} rows, {qa_mb:.1f} MB "
+          f"({len(qa_rows) - len(calls)} more than the dataset, expected {EXPECT_ORPHAN_AUDITS})")
     print(f"[plan] dashboard_snapshot  1 row, {len(snap['geo']):,} geo triples, "
           f"taxonomy: {', '.join(f'{k} {len(v)}' for k, v in snap['taxonomy'].items())}")
     print(f"       payload: {', '.join(payload_keys)}")
@@ -592,6 +648,9 @@ def main():
     want = args.only
     if want in ("all", "meta"):
         load(session, "dashboard_employees", emp_rows, args.batch_size)
+    if want in ("all", "qa"):
+        load(session, "qa_audits", qa_rows, args.batch_size)
+        load(session, "qa_audit_run", [qa_run], 1)
     if want in ("all", "calls"):
         load(session, "dashboard_calls", call_rows, args.batch_size)
     if want in ("all", "detail"):

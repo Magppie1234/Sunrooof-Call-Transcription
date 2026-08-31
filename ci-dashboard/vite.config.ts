@@ -15,17 +15,26 @@ import react from '@vitejs/plugin-react'
  * snapshot never enters the graph.
  */
 const LIVE = process.env.VITE_DATA_MODE === 'live'
-const realServiceAlias = LIVE
-  ? [{
-      find: /^\.\/realService$/,
-      replacement: fileURLToPath(new URL('./src/services/realService.live-stub.ts', import.meta.url)),
-    }]
+const liveStubs = LIVE
+  ? [
+      {
+        find: /^\.\/realService$/,
+        replacement: fileURLToPath(new URL('./src/services/realService.live-stub.ts', import.meta.url)),
+      },
+      {
+        // Anchored at both ends. A regex matching only the tail replaces only
+        // the tail, leaving '..' glued to the absolute replacement path — the
+        // build fails with UNLOADABLE_DEPENDENCY on '..C:\Users\...'.
+        find: /^\.\.\/data\/real\/qaSnapshot$/,
+        replacement: fileURLToPath(new URL('./src/data/real/qaSnapshot.live-stub.ts', import.meta.url)),
+      },
+    ]
   : []
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: realServiceAlias },
+  resolve: { alias: liveStubs },
   server: {
     watch: {
       // dist-real/ and dist-live/ are build output: thousands of per-call JSON
