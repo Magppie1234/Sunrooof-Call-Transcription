@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHead } from '../components/layout';
 import { Card, Loading, ErrorState, DataTable, Pill, exportCsv, sentimentTone, type Column } from '../components/ui';
@@ -10,14 +11,22 @@ import type { CallRecord } from '../types/domain';
 
 export default function CallExplorer() {
   const { data: d, loading, error } = useFilteredData();
-  const { filters, setFilters } = useAppState();
+  const { filters } = useAppState();
   const navigate = useNavigate();
+  // Local, not global: a text search is only meaningful against this table, and
+  // as a global filter it followed the user to every other page with no search
+  // box on screen to show what was narrowing their numbers.
+  const [search, setSearch] = useState('');
 
   if (loading && !d) return <Loading label="Loading calls…" />;
   if (error) return <ErrorState message={error} />;
   if (!d) return null;
 
-  const rows = d.current;
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (c: CallRecord) =>
+    !q || `${c.id} ${c.customerName} ${c.summary} ${c.topics.join(' ')}`.toLowerCase().includes(q);
+  const rows = d.current.filter(matchesSearch);
+  const analysedCount = d.analysed.filter(matchesSearch).length;
 
   const cols: Column<CallRecord>[] = [
     {
@@ -65,9 +74,9 @@ export default function CallExplorer() {
     { key: 'quality', label: 'Quality', num: true, render: (c) => c.quality ? <>{c.quality.overall}{c.quality.complianceFail && <div><Pill tone="critical">compliance</Pill></div>}</> : <span className="cell-sub">—</span>, sortVal: (c) => c.quality?.overall ?? -1 },
     { key: 'actions', label: 'Next actions', num: true, render: (c) => c.actions.length ? `${c.actions.length}${c.actions.some((a) => a.slaStatus === 'overdue') ? ' ⚠' : ''}` : '—', sortVal: (c) => c.actions.length },
     {
-      key: 'conf', label: 'AI conf', num: true, render: (c) => c.transcribed
-        ? <span className={c.transcriptionConfidence < 0.6 ? 'delta down' : ''}>{(c.aiConfidence * 100).toFixed(0)}%</span>
-        : <Pill tone="neutral">no transcript</Pill>, sortVal: (c) => c.aiConfidence,
+      key: 'conf', label: 'Transcript conf', num: true, render: (c) => c.transcribed
+        ? <span className={c.transcriptionConfidence < 0.6 ? 'delta down' : ''}>{(c.transcriptionConfidence * 100).toFixed(0)}%</span>
+        : <Pill tone="neutral">no transcript</Pill>, sortVal: (c) => c.transcriptionConfidence,
     },
   ];
 
@@ -90,12 +99,12 @@ export default function CallExplorer() {
 
       <Card>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-          <input className="searchbox" placeholder="Search call ID, customer, summary, topic…" value={filters.search}
-            onChange={(e) => setFilters({ search: e.target.value })} aria-label="Search calls" />
-          <span className="sample-note">{fmtInt(rows.length)} calls match · {fmtInt(d.analysed.length)} analysed</span>
+          <input className="searchbox" placeholder="Search call ID, customer, summary, topic…" value={search}
+            onChange={(e) => setSearch(e.target.value)} aria-label="Search calls" />
+          <span className="sample-note">{fmtInt(rows.length)} calls match · {fmtInt(analysedCount)} analysed</span>
           <button className="btn small" style={{ marginLeft: 'auto' }} onClick={() => exportCsv('calls.csv',
             ['Call ID', 'Date', 'Customer', 'Employee', 'Team', 'Region', 'City', 'Language', 'Direction', 'Duration (s)', 'Sentiment', 'Purchase readiness', 'Outcome', 'Quality', 'Actions', 'AI confidence', 'Compliance flags'],
-            rows.map((c) => [c.id, c.dateTime, c.customerName, EMPLOYEES.find((e) => e.id === c.employeeId)?.name ?? c.employeeId, EMPLOYEES.find((e) => e.id === c.employeeId)?.team ?? '', c.region, c.city, c.language, c.direction, c.durationSec, c.sentiment?.overall ?? 'not analysed', c.purchaseReadiness?.score ?? '', c.outcome, c.quality?.overall ?? '', c.actions.length, (c.aiConfidence * 100).toFixed(0) + '%', c.complianceFlags.join('; ')]))}>
+            rows.map((c) => [c.id, c.dateTime, c.customerName, EMPLOYEES.find((e) => e.id === c.employeeId)?.name ?? c.employeeId, EMPLOYEES.find((e) => e.id === c.employeeId)?.team ?? '', c.region, c.city, c.language, c.direction, c.durationSec, c.sentiment?.overall ?? 'not analysed', c.purchaseReadiness?.score ?? '', c.outcome, c.quality?.overall ?? '', c.actions.length, (c.transcriptionConfidence * 100).toFixed(0) + '%', c.complianceFlags.join('; ')]))}>
             Export CSV
           </button>
         </div>

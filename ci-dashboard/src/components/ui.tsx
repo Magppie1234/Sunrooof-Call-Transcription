@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { fmtDelta, fmtInt } from '../lib/format';
 import { MIN_SAMPLE_SIZE } from '../config';
 import { provOf, type ProvStatus } from '../lib/provenance';
@@ -219,15 +219,31 @@ export function Funnel({ stages }: { stages: { label: string; count: number; sou
   const ramp = ['#86b6ef', '#6da7ec', '#5598e7', '#3987e5', '#2a78d6', '#256abf', '#1c5cab'];
   return (
     <div>
-      {stages.map((s, i) => (
-        <div key={s.label} className="funnel-stage">
-          <div style={{ color: 'var(--ink-2)', fontWeight: 550 }}>{s.label}{s.source === 'crm' && <div className="cell-sub">CRM-verified</div>}</div>
-          <div><div className="funnel-bar" style={{ width: `${Math.max(3, (s.count / max) * 100)}%`, background: ramp[Math.min(i, ramp.length - 1)] }}>{fmtInt(s.count)}</div></div>
-          <div className="cell-sub" style={{ textAlign: 'right' }}>
-            {i === 0 ? '100%' : `${((s.count / max) * 100).toFixed(1)}% of calls`}
+      {stages.map((s, i) => {
+        const pct = (s.count / max) * 100;
+        const value = fmtInt(s.count);
+        // A count printed inside its own bar gets clipped once the bar is
+        // narrower than the text: the tail stages rendered 20 as "2" and 12 as
+        // "1", understating the funnel by an order of magnitude rather than
+        // merely looking cramped. Estimate the room the digits need — roughly
+        // 8px per glyph at 11.5px/650 plus the bar's 16px of padding, against a
+        // track that is ~450px wide at the default card size — and put the
+        // label beside the bar instead whenever it would not fit inside.
+        const needsPct = ((value.length * 8 + 16) / 450) * 100;
+        const inside = pct >= needsPct;
+        return (
+          <div key={s.label} className="funnel-stage">
+            <div style={{ color: 'var(--ink-2)', fontWeight: 550 }}>{s.label}{s.source === 'crm' && <div className="cell-sub">CRM-verified</div>}</div>
+            <div className="funnel-track">
+              <div className="funnel-bar" style={{ width: `${Math.max(3, pct)}%`, background: ramp[Math.min(i, ramp.length - 1)] }}>{inside ? value : ''}</div>
+              {!inside && <span className="funnel-bar-value">{value}</span>}
+            </div>
+            <div className="cell-sub" style={{ textAlign: 'right' }}>
+              {i === 0 ? '100%' : `${pct.toFixed(1)}% of calls`}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -253,9 +269,20 @@ export function DataTable<T>({ columns, rows, rowKey, onRow, pageSize = 15, init
   const [sort, setSort] = useState(initialSort ?? null);
   const [page, setPage] = useState(0);
 
+  // Held in a ref, deliberately, and NOT listed as a memo dependency. Every
+  // page builds its column array as a fresh literal on each render, so keying
+  // the memo on `columns` made it miss every single time — re-copying and
+  // re-sorting the whole row set on every render rather than only when the
+  // sort changed. On Call Explorer that was ~6k rows sorted on each keystroke,
+  // because the search box lives in global filter state. Only the active
+  // column's `sortVal` is read here and the column set is structurally static
+  // per page, so the data and the sort direction are the real dependencies.
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+
   const sorted = useMemo(() => {
     if (!sort) return rows;
-    const col = columns.find((c) => c.key === sort.key);
+    const col = columnsRef.current.find((c) => c.key === sort.key);
     if (!col?.sortVal) return rows;
     const sv = col.sortVal;
     return [...rows].sort((a, b) => {
@@ -263,7 +290,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRow, pageSize = 15, init
       const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
       return sort.dir === 'asc' ? cmp : -cmp;
     });
-  }, [rows, sort, columns]);
+  }, [rows, sort]);
 
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const clampedPage = Math.min(page, pages - 1);

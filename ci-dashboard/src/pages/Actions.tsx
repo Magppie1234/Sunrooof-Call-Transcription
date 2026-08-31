@@ -59,7 +59,7 @@ export default function Actions() {
         <div style={{ maxWidth: 250 }}>
           <strong>{a.action}</strong>
           <div className="cell-sub">{a.reason}</div>
-          <div className="cell-sub">Channel: {a.channel} · AI conf {(a.confidence * 100).toFixed(0)}%</div>
+          <div className="cell-sub">Channel: {a.channel}</div>
         </div>
       ), sortVal: (a) => a.action,
     },
@@ -145,8 +145,8 @@ export default function Actions() {
           <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{label}</button>
         ))}
         <button className="btn small" style={{ marginLeft: 'auto', alignSelf: 'center' }} onClick={() => exportCsv('actions.csv',
-          ['ID', 'Action', 'Source', 'Customer', 'Call', 'Owner', 'Priority', 'Due', 'SLA', 'Status', 'Channel', 'Reason', 'AI confidence'],
-          visible.map((a) => [a.id, a.action, a.source, a.customerName, a.callId, EMPLOYEES.find((e) => e.id === a.ownerEmployeeId)?.name ?? a.ownerEmployeeId, a.priority, a.dueDate, SLA_LABEL[a.slaStatus], a.status, a.channel, a.reason, (a.confidence * 100).toFixed(0) + '%']))}>
+          ['ID', 'Action', 'Source', 'Customer', 'Call', 'Owner', 'Priority', 'Due', 'SLA', 'Status', 'Channel', 'Reason'],
+          visible.map((a) => [a.id, a.action, a.source, a.customerName, a.callId, EMPLOYEES.find((e) => e.id === a.ownerEmployeeId)?.name ?? a.ownerEmployeeId, a.priority, a.dueDate, SLA_LABEL[a.slaStatus], a.status, a.channel, a.reason]))}>
           Export CSV
         </button>
       </div>

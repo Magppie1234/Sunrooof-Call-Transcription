@@ -2,11 +2,14 @@ import type { CallRecord } from '../types/domain';
 import { EMPLOYEES } from '../data/taxonomy';
 import { MIN_TRANSCRIPTION_CONFIDENCE } from '../config';
 
-export type DatePreset = '7d' | '30d' | '90d';
+export type DatePreset = '7d' | '30d' | '90d' | 'custom';
 
 /** All dimension filters use '' to mean "all". */
 export interface FilterState {
   preset: DatePreset;
+  /** YYYY-MM-DD, inclusive. Only read when preset === 'custom'. */
+  customStart: string;
+  customEnd: string;
   region: string;
   state: string;
   city: string;
@@ -33,14 +36,37 @@ export interface FilterState {
 }
 
 export const DEFAULT_FILTERS: FilterState = {
-  preset: '30d', region: '', state: '', city: '', team: '', employee: '', product: '',
+  preset: '30d', customStart: '', customEnd: '', region: '', state: '', city: '', team: '', employee: '', product: '',
   direction: '', language: '', sentiment: '', outcome: '', leadSource: '', campaign: '',
   intent: '', customerType: '', faqCategory: '', faqQuestion: '', faqStatus: '', faqSentimentAfter: '', objection: '', actionStatus: '',
   compliance: '', includeLowConfidence: false, search: '',
 };
 
-export const PRESET_DAYS: Record<DatePreset, number> = { '7d': 7, '30d': 30, '90d': 90 };
-export const PRESET_LABEL: Record<DatePreset, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days' };
+/**
+ * Every key matchesDims() narrows on. All are strings where '' means "all".
+ *
+ * The filter bar derives both its active count and its chip row from this list,
+ * so a key matchesDims reads but this list omits becomes a filter the user can
+ * neither see nor clear — which is how a drill-down on city, outcome or search
+ * could silently hold the whole dashboard down to a fraction of its calls with
+ * nothing on screen to say why. Keep this in step with matchesDims().
+ */
+export const DIMENSION_LABELS = {
+  region: 'Region', state: 'State', city: 'City', team: 'Team', employee: 'Employee',
+  product: 'Product', direction: 'Direction', language: 'Language', sentiment: 'Sentiment',
+  outcome: 'Outcome', leadSource: 'Lead source', campaign: 'Campaign', intent: 'Purchase readiness',
+  customerType: 'Customer type', faqCategory: 'FAQ category', faqQuestion: 'FAQ',
+  faqStatus: 'FAQ status', faqSentimentAfter: 'Sentiment after answer', objection: 'Objection',
+  actionStatus: 'Action status', compliance: 'Compliance', search: 'Search',
+} as const satisfies Partial<Record<keyof FilterState, string>>;
+
+export type DimensionKey = keyof typeof DIMENSION_LABELS;
+export const DIMENSION_KEYS = Object.keys(DIMENSION_LABELS) as DimensionKey[];
+
+// 'custom' has no fixed day-count — the 0 is a placeholder never read (see
+// periodWindows below, which branches to customStart/customEnd instead).
+export const PRESET_DAYS: Record<DatePreset, number> = { '7d': 7, '30d': 30, '90d': 90, custom: 0 };
+export const PRESET_LABEL: Record<DatePreset, string> = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', custom: 'Custom range' };
 
 export interface PeriodWindows {
   currentStart: Date;
@@ -49,8 +75,23 @@ export interface PeriodWindows {
   prevEnd: Date;
 }
 
-export function periodWindows(preset: DatePreset, now = new Date()): PeriodWindows {
-  const days = PRESET_DAYS[preset];
+/**
+ * Takes the whole FilterState (not just the preset) because 'custom' needs
+ * customStart/customEnd. For a rolling preset, `now` is the window's end —
+ * for 'custom' it's ignored and the picked dates are used directly, with the
+ * comparison window set to the same-length span immediately before it.
+ */
+export function periodWindows(f: Pick<FilterState, 'preset' | 'customStart' | 'customEnd'>, now = new Date()): PeriodWindows {
+  if (f.preset === 'custom' && f.customStart && f.customEnd) {
+    const currentStart = new Date(`${f.customStart}T00:00:00`);
+    // End date is inclusive of the whole day the user picked.
+    const currentEnd = new Date(new Date(`${f.customEnd}T00:00:00`).getTime() + 86400_000);
+    const spanMs = currentEnd.getTime() - currentStart.getTime();
+    const prevEnd = currentStart;
+    const prevStart = new Date(currentStart.getTime() - spanMs);
+    return { currentStart, currentEnd, prevStart, prevEnd };
+  }
+  const days = PRESET_DAYS[f.preset] || 30;
   const currentEnd = now;
   const currentStart = new Date(now.getTime() - days * 86400_000);
   const prevEnd = currentStart;
@@ -112,7 +153,7 @@ export const isAnalysable = (c: CallRecord, includeLowConfidence: boolean) =>
   (includeLowConfidence || c.transcriptionConfidence >= MIN_TRANSCRIPTION_CONFIDENCE);
 
 export function applyFilters(calls: CallRecord[], f: FilterState, now = new Date()): FilteredData {
-  const windows = periodWindows(f.preset, now);
+  const windows = periodWindows(f, now);
   const inWindow = (c: CallRecord, s: Date, e: Date) => {
     const t = new Date(c.dateTime).getTime();
     return t >= s.getTime() && t < e.getTime();

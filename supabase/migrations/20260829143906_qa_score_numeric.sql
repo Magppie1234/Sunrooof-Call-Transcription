@@ -1,0 +1,82 @@
+-- ============================================================================
+-- dashboard_calls.qa_score: integer -> numeric(4,1)
+--
+-- WHY
+-- The QA scorecard is a percentage of an adjusted maximum, so it lands on one
+-- decimal place whenever the adjusted max does not divide evenly. Against the
+-- 29 Aug 2026 snapshot that is 596 of the 4,342 scored calls — 13.7%, not a
+-- rounding-error minority.
+--
+-- `integer` does not reject those values, it rounds them, on the way in, with
+-- no warning. For 595 of the 596 that is a cosmetic shift of at most 0.5. For
+-- one it is not:
+--
+--     887064000041661165   74.5 -> 75
+--
+-- The tier floors in scripts/call_quality.py are 85 / 75 / 60 / 50, so that row
+-- would sit at qa_score 75 next to qa_tier 'BRONZE' — a score contradicting its
+-- own tier. That is the precise failure this project already guards against by
+-- having Python own every gate, sum and tier while the model only judges: an
+-- LLM that totals its own scorecard disagrees with itself on a minority of
+-- calls, silently. Reintroducing the same class of inconsistency in the storage
+-- layer would be worse, because nothing downstream would have any reason to
+-- suspect it.
+--
+-- Verified before writing this: score and tier agree on all 4,342 scored calls
+-- as they stand. The inconsistency would be created by the load, not carried in
+-- by it.
+--
+-- WHY numeric(4,1) AND NOT real
+-- Scores are compared against exact decimal thresholds (>= 85.0, >= 75.0). A
+-- binary float cannot represent 74.5-style values exactly in every case, so a
+-- score sitting exactly on a floor could compare either way depending on how it
+-- was produced. numeric is exact decimal arithmetic, and (4,1) holds 0.0-999.9,
+-- comfortably wider than the 0-100 the scorecard can emit.
+--
+-- SAFE TO RUN ON A LOADED TABLE
+-- The table is empty today, so this rewrite costs nothing. It stays correct if
+-- it runs later against a populated table: integer -> numeric is a widening
+-- cast that never loses a value. It does take an ACCESS EXCLUSIVE lock for the
+-- rewrite, so on a large table run it outside dashboard traffic.
+--
+-- TO DRY-RUN THIS BEFORE APPLYING IT
+--     begin;  <body below>  rollback;
+-- in the Supabase SQL editor. Postgres executes DDL transactionally, so a
+-- syntax error surfaces and the rollback leaves the database as it was.
+--
+-- TO APPLY IT
+--     npx supabase db push
+-- ============================================================================
+
+alter table dashboard_calls
+  alter column qa_score type numeric(4,1);
+
+comment on column dashboard_calls.qa_score is
+  'Percentage of the adjusted maximum, one decimal place. Null means not scored (insufficient conversation), which is distinct from a score of 0. numeric, not integer: 13.7% of scores are fractional and rounding one of them crosses a tier floor.';
+
+-- ============================================================================
+-- Verification — run after applying
+-- ============================================================================
+--   select data_type, numeric_precision, numeric_scale
+--     from information_schema.columns
+--    where table_name = 'dashboard_calls' and column_name = 'qa_score';
+--   -- numeric | 4 | 1
+--
+-- Then, after scripts/load_dashboard_tables.py has run, the row this migration
+-- exists for:
+--
+--   select qa_score, qa_tier from dashboard_calls
+--    where call_id = '887064000041661165';
+--   -- 74.5 | BRONZE
+--
+-- And no score anywhere disagreeing with its own tier:
+--
+--   select count(*) from dashboard_calls
+--    where qa_score is not null
+--      and qa_tier <> case when qa_score >= 85 then 'GOLD'
+--                          when qa_score >= 75 then 'SILVER'
+--                          when qa_score >= 60 then 'BRONZE'
+--                          when qa_score >= 50 then 'DEVELOPING'
+--                          else 'AT_RISK' end;
+--   -- 0
+-- ============================================================================

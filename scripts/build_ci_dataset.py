@@ -28,11 +28,17 @@ import requests
 
 load_dotenv()
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from speech_dynamics import conversation_gate  # noqa: E402
+
 BASE = Path(__file__).resolve().parent.parent
 TDIR = BASE / "out" / "transcripts"
 FDIR = BASE / "out" / "faqs"
 EDIR = BASE / "out" / "ci_enrichment"
 ZOHO_FILE = BASE / "out" / "zoho_enrichment.json"
+RECORDING_URLS_FILE = BASE / "out" / "recording_urls.json"
+ZOHO_NOTES_SYNCED_FILE = BASE / "out" / "zoho_notes_synced.json"
+ZOHO_TRANSCRIPTS_SYNCED_FILE = BASE / "out" / "zoho_transcripts_synced.json"
 FAQ_ANALYSIS = BASE / "out" / "faq_analysis.json"
 # This project's OWN dashboard copy. Kept relative to the repo root so a run
 # here can never write into the sibling Magppie project it was cloned from.
@@ -130,10 +136,20 @@ CLIENT_TYPE_MAP = {
     "dealer": "Dealer", "distributor": "Dealer",
 }
 
-# Zoho lead stages present in this org. Only "Qualified" represents a real
-# opportunity; nothing in the vocabulary marks a won order, so orderConfirmed
-# is false for every call and revenue stays null (see provenance).
-OPPORTUNITY_STAGES = {"qualified/ drawings awiated"}
+# Zoho lead stages that mean the lead reached a real sales opportunity — a
+# quotation was given, or the deal moved past it. Matched lowercased against the
+# stage string.
+#
+# The previous value was a single misspelled stage, "qualified/ drawings
+# awiated", which matches nothing in this org's vocabulary, so opportunityCreated
+# came back false on all 6,253 calls and the funnel's opportunity stage read a
+# permanent zero. The four below are the stages at or beyond "Raw Quote" (the
+# point where the layout has been sent and a rough quotation given).
+#
+# Still nothing in the vocabulary unambiguously marks a WON order — "Closure"
+# may or may not mean won — so orderConfirmed stays false and revenue stays
+# null rather than guessing. That one needs a business answer, not a code change.
+OPPORTUNITY_STAGES = {"raw quote", "raw", "drawings received", "closure"}
 
 # Used when the enrichment pass left `outcome` unset (a few very short calls):
 # fall back to the real call_outcome already stored in call_summaries rather
@@ -228,6 +244,37 @@ def band(score):
     return "high" if score >= 70 else "medium" if score >= 50 else "low" if score >= 30 else "none"
 
 
+def _norm(s):
+    return re.sub(r"\s+", " ", (s or "")).strip().lower()
+
+
+def locate_in_transcript(quote, entries):
+    """Second offset of the turn a quoted line was said in, or None.
+
+    Objections used to be stamped `t: 0`, so every one of them appeared to
+    happen in the first second of the call and the "jump to this moment" link
+    on the call page always landed at the start. The enrichment pass already
+    keeps the customer's own words, and the diarised turns carry real Sarvam
+    start times, so the moment is recoverable by matching one against the other.
+
+    Matching shortens the probe from 60 characters down to 20 before giving up:
+    the stored statement is usually an exact span but is sometimes lightly
+    trimmed at the end. Returns None rather than 0 when nothing matches, so an
+    unlocatable objection reads as "unknown" instead of "start of call".
+    """
+    q = _norm(quote)
+    if len(q) < 12:
+        return None
+    turns = [(int(e.get("start_time_seconds") or 0), _norm(e.get("transcript")))
+             for e in entries if (e.get("transcript") or "").strip()]
+    for width in (60, 40, 20):
+        probe = q[:width]
+        for start, text in turns:
+            if probe and probe in text:
+                return start
+    return None
+
+
 def scorecard_to_quality(analysis, enrich, faqs, objections):
     """Map the existing 1-5 scorecard + enrichment 0-100 dims onto the
     dashboard's eight 0-100 quality parameters. Dimensions the scorecard marked
@@ -284,7 +331,7 @@ def build_faqs(cid, faq_file, canonical_for, enrich, entries, agent_sid):
     timestamps: the gap from the customer's question to the agent's next turn."""
     if not faq_file.exists():
         return []
-    questions = json.loads(faq_file.read_text()).get("questions", [])
+    questions = json.loads(faq_file.read_text(encoding="utf-8")).get("questions", [])
     extras = {e["question"]: e for e in ((enrich or {}).get("faq_extras") or [])}
 
     def response_gap(quote):
@@ -331,10 +378,6 @@ def build_faqs(cid, faq_file, canonical_for, enrich, entries, agent_sid):
             "sentimentAfter": ex.get("sentiment_after", "neutral"),
             "escalationNeeded": bool(ex.get("escalation_needed", False)),
             "t": t,
-            # Every retained question carries a transcript-verified quote, so
-            # confidence is high by construction; unquotable ones were dropped
-            # upstream in extract_faqs.py.
-            "confidence": 0.9,
         })
     return out
 
@@ -383,7 +426,6 @@ def build_actions(cid, customer_name, employee_id, summ, enrich, start_dt, now):
             "channel": "WhatsApp" if "whatsapp" in text.lower() else "Call",
             "reason": text,
             "transcriptRef": None,
-            "confidence": 0.8,
             "status": "completed" if completed else "pending",
             "slaStatus": sla,
             "crmTaskLinked": False,
@@ -414,14 +456,17 @@ def main():
     trows = {r["call_id"]: r for r in sb_all("transcripts", "call_id,state,city")}
     print(f"   {len(summaries)} summaries, {len(trows)} transcript rows")
 
-    zoho = json.loads(ZOHO_FILE.read_text()) if ZOHO_FILE.exists() else {}
+    zoho = json.loads(ZOHO_FILE.read_text(encoding="utf-8")) if ZOHO_FILE.exists() else {}
+    recording_urls = json.loads(RECORDING_URLS_FILE.read_text(encoding="utf-8")) if RECORDING_URLS_FILE.exists() else {}
+    notes_synced = set(json.loads(ZOHO_NOTES_SYNCED_FILE.read_text(encoding="utf-8"))) if ZOHO_NOTES_SYNCED_FILE.exists() else set()
+    transcripts_synced = set(json.loads(ZOHO_TRANSCRIPTS_SYNCED_FILE.read_text(encoding="utf-8"))) if ZOHO_TRANSCRIPTS_SYNCED_FILE.exists() else set()
     print(f"   {len(zoho)} zoho enrichment rows")
 
     # Preferred path: the exact raw→canonical clustering emitted by
     # aggregate_faqs.py, so this dashboard groups questions identically to the
     # FAQ analysis the business already reviews.
     QMAP_FILE = BASE / "out" / "faq_question_map.json"
-    exact_map = json.loads(QMAP_FILE.read_text()) if QMAP_FILE.exists() else {}
+    exact_map = json.loads(QMAP_FILE.read_text(encoding="utf-8")) if QMAP_FILE.exists() else {}
     print(f"   {len(exact_map)} exact question→canonical mappings"
           if exact_map else "   ⚠ no exact question map; falling back to word-overlap matching")
 
@@ -430,7 +475,7 @@ def main():
     # rather than being forced into a wrong cluster.
     canon_by_topic = defaultdict(list)
     if FAQ_ANALYSIS.exists():
-        for f in json.loads(FAQ_ANALYSIS.read_text()).get("faqs", []):
+        for f in json.loads(FAQ_ANALYSIS.read_text(encoding="utf-8")).get("faqs", []):
             canon_by_topic[f.get("topic", "other")].append(f["canonical_question"])
 
     STOP = {"the", "a", "an", "is", "are", "do", "does", "you", "your", "i", "my", "what",
@@ -472,19 +517,19 @@ def main():
         tpath = TDIR / f"{cid}.mp3.json"
         if not tpath.exists():
             continue
-        tdata = json.loads(tpath.read_text())
+        tdata = json.loads(tpath.read_text(encoding="utf-8"))
         entries = tdata.get("diarized_transcript", {}).get("entries", []) or []
         if not entries:
             continue
 
         epath = EDIR / f"{cid}.json"
-        enrich = json.loads(epath.read_text()) if epath.exists() else None
+        enrich = json.loads(epath.read_text(encoding="utf-8")) if epath.exists() else None
         if enrich is None:
             missing_enrich += 1
 
         # agent speaker = the one who names the company (same rule as elsewhere)
         import re as _re
-        COMPANY_RE = _re.compile(r"\bmag+p+ie|magpp?ie|mac ?pie|magpai|magpy\b", _re.I)
+        COMPANY_RE = _re.compile(r"sun\s*ro+f", _re.I)
         brand = next((e for e in entries if COMPANY_RE.search(e.get("transcript") or "")), None)
         agent_sid = brand.get("speaker_id") if brand else (entries[0].get("speaker_id") if entries else None)
 
@@ -534,7 +579,7 @@ def main():
             "employeeResponse": o.get("employee_response") or "",
             "technique": o.get("technique") or "None",
             "resolution": o["resolution"], "customerReaction": o["customer_reaction"],
-            "t": 0, "confidence": 0.75,
+            "t": locate_in_transcript(o.get("statement"), entries),
         } for o in ((enrich or {}).get("objections") or [])]
 
         quality = scorecard_to_quality(summ.get("analysis"), enrich, faqs, objections)
@@ -561,7 +606,21 @@ def main():
                    or LEGACY_OUTCOME.get(summ.get("call_outcome") or "", "Interested — follow-up"))
         connected = dur > 0 and outcome != "Not connected"
         customer_spoke = any(e.get("speaker_id") != agent_sid for e in entries)
-        meaningful = connected and dur > MEANINGFUL_MIN_SEC and customer_spoke
+        # `customer_spoke` is not evidence that a second person was on the line:
+        # diarisation splits room echo across two or three speaker ids, so a
+        # recording of an empty office reports a "customer" and passes this test.
+        # `connected` leans on the model-derived `outcome`, which is exactly what
+        # is unreliable on these calls. The gate is arithmetic on speech density
+        # and depends on neither.
+        #
+        # `sparse` is excluded here as well as `no_contact`, which costs one real
+        # call out of 6,260 — an inbound enquiry sitting behind 90s of hold music.
+        # That is the right trade: `meaningful` gates the analytics aggregates, a
+        # call we cannot show contained a conversation does not belong in them,
+        # and the alternative leaks recordings of empty rooms into the averages.
+        gate = conversation_gate(entries)
+        meaningful = (connected and dur > MEANINGFUL_MIN_SEC and customer_spoke
+                      and gate["verdict"] == "ok")
 
         comp = summ.get("competitor_mentioned")
         asr = (enrich or {}).get("asr_confidence")
@@ -578,7 +637,6 @@ def main():
             "customerType": customer_type,
             "employeeId": employee_id,
             "region": region, "state": state, "city": city,
-            "pincode": "",                                  # not populated in Zoho
             "productSeries": product_series(enrich),
             # Zoho Type_of_Space (Residential / Office / Retail / Hotel …).
             # Sunrooof-specific: this org populates it on ~71% of leads, so it
@@ -629,7 +687,6 @@ def main():
                 "speaker": "agent" if e.get("speaker_id") == agent_sid else "customer",
                 "text": (e.get("transcript") or "").strip(),
             } for e in entries if (e.get("transcript") or "").strip()],
-            "aiConfidence": 0.8,
             "crm": {
                 "opportunityCreated": stage.strip().lower() in OPPORTUNITY_STAGES,
                 "orderConfirmed": False,          # no won/order stage exists in this CRM data
@@ -638,6 +695,14 @@ def main():
                 "verified": False,
             },
             "hasRecording": True,
+            # Zoho phonebridge URL, proxied by scripts/audio_proxy.mjs (holds
+            # the session cookie server-side — never shipped to the browser).
+            "recordingUrl": recording_urls.get(cid),
+            # Whether an AI-generated note has ever reached Zoho for this call —
+            # via the old bulk sync or the Update CRM button. Informational only;
+            # the button always re-checks Zoho's live state before writing.
+            "crmNoteSynced": cid in notes_synced,
+            "crmTranscriptSynced": cid in transcripts_synced,
         })
 
     calls.sort(key=lambda c: c["dateTime"])
@@ -665,7 +730,7 @@ def main():
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(dataset, ensure_ascii=False, separators=(",", ":")))
+    out_path.write_text(json.dumps(dataset, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     size_mb = out_path.stat().st_size / 1e6
 
     print(f"\n💾 {out_path}  ({size_mb:.1f} MB)")

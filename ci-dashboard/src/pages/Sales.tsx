@@ -149,7 +149,7 @@ export default function Sales() {
             <div key={`${c.id}-${i}`} className="rankbar-row clickable" style={{ gridTemplateColumns: '1fr auto' }} onClick={() => navigate(`/calls/${c.id}`)}>
               <div className="rankbar-label" style={{ whiteSpace: 'normal' }}>
                 <Pill tone={o.resolution === 'resolved' ? 'good' : o.resolution === 'partial' ? 'warning' : 'critical'}>{o.type} · {o.resolution}</Pill>
-                <div className="cell-sub" style={{ marginTop: 3 }}>“{o.statement}” — {c.customerName}, {c.city}. Technique: {o.technique}. AI conf {(o.confidence * 100).toFixed(0)}%.</div>
+                <div className="cell-sub" style={{ marginTop: 3 }}>“{o.statement}” — {c.customerName}, {c.city}. Technique: {o.technique}.</div>
               </div>
               <span className="cell-sub">{c.id} →</span>
             </div>

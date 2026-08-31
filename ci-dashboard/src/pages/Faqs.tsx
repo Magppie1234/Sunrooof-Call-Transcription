@@ -79,7 +79,6 @@ export default function Faqs() {
     },
     { key: 'esc', label: 'Escalations', num: true, render: (r) => r.escalations || '—', sortVal: (r) => r.escalations },
     { key: 'reco', label: 'Recommended action', render: (r) => <span style={{ fontSize: 12, maxWidth: 220, display: 'inline-block' }}>{r.recommendation}</span> },
-    { key: 'conf', label: 'AI conf', num: true, render: (r) => `${(r.avgConfidence * 100).toFixed(0)}%`, sortVal: (r) => r.avgConfidence },
   ];
 
   return (
@@ -152,8 +151,8 @@ export default function Faqs() {
 
       <div className="section-title">Ranked FAQ table
         <button className="btn small" onClick={() => exportCsv('faqs.csv',
-          ['Standardised FAQ', 'Category', 'Sample question', 'Calls', 'Customers', '% of analysed', 'Prior period', 'Answered', 'Partial', 'Unanswered', 'Avg response (s)', 'Positive after %', 'Negative after %', 'Escalations', 'AI confidence', 'Recommendation'],
-          rows.map((r) => [r.standardized, r.category, r.sampleQuestion, r.calls, r.customers, r.pctOfAnalysed.toFixed(1), r.prevCalls, r.answered, r.partial, r.unanswered, r.avgResponseSec, r.positiveAfterPct.toFixed(0), r.negativeAfterPct.toFixed(0), r.escalations, (r.avgConfidence * 100).toFixed(0) + '%', r.recommendation]))}>
+          ['Standardised FAQ', 'Category', 'Sample question', 'Calls', 'Customers', '% of analysed', 'Prior period', 'Answered', 'Partial', 'Unanswered', 'Avg response (s)', 'Positive after %', 'Negative after %', 'Escalations', 'Recommendation'],
+          rows.map((r) => [r.standardized, r.category, r.sampleQuestion, r.calls, r.customers, r.pctOfAnalysed.toFixed(1), r.prevCalls, r.answered, r.partial, r.unanswered, r.avgResponseSec, r.positiveAfterPct.toFixed(0), r.negativeAfterPct.toFixed(0), r.escalations, r.recommendation]))}>
           Export CSV
         </button>
         <span className="sub">Click a row to open matching calls with supporting transcripts</span>
