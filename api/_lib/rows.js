@@ -88,3 +88,41 @@ export function rowToDetail(callId, row) {
     qa,
   };
 }
+
+/**
+ * dashboard_employees row -> the Employee shape the dashboard uses. Only the
+ * key name changes (employee_id -> id); everything else is already camel-free.
+ */
+export function rowToEmployee(row) {
+  return {
+    id: row.employee_id,
+    name: row.name,
+    team: row.team,
+    manager: row.manager,
+    role: row.role,
+  };
+}
+
+/**
+ * dashboard_meta row -> CorpusMeta, the few kilobytes the app shell needs
+ * before it can render: the filter bar's option lists, the dataset total, and
+ * the bounds the period filters are measured from.
+ *
+ * min_ts and max_ts are passed through RAW rather than turned into dates here.
+ * The client derives the anchor and the picker bounds from them with the same
+ * function it uses over the static snapshot, so the two data modes cannot
+ * disagree about which day "last 30 days" ends on. Deriving it here would put
+ * that arithmetic in two places, and the whole date filter hangs off it.
+ */
+export function rowToMeta(row, employees) {
+  return {
+    generatedAt: row.generated_at,
+    sourceLabel: row.source_label,
+    callCount: Number(row.call_count),
+    minTs: row.min_ts,
+    maxTs: row.max_ts,
+    employees,
+    geo: row.geo ?? [],
+    taxonomy: row.taxonomy ?? {},
+  };
+}

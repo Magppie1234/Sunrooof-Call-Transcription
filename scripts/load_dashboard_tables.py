@@ -37,7 +37,7 @@ import os
 import sys
 import time
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -63,6 +63,8 @@ AUDITS = BASE / "ci-dashboard" / "src" / "data" / "real" / "qa_audits.json"
 EXPECT_CALLS = 6253
 EXPECT_SCORED = 4342
 EXPECT_ORPHAN_AUDITS = 7
+EXPECT_EMPLOYEES = 17
+EXPECT_GEO = 456
 
 # The dashboard anchors its default period to the newest call plus one day, NOT
 # to midnight. The calendar-day version of this range returns 4,858 — close
@@ -218,6 +220,69 @@ def call_row(call, audit, round_scores):
 # goes to qa_meta, by difference — so an audit field added upstream is carried
 # rather than dropped, the same way payload works in dashboard_calls.
 AUDIT_OWN_COLUMNS = ("criteria", "conduct", "redFlags", "reviewReasons")
+
+
+def employee_rows(dataset):
+    """The agent roster, straight out of the snapshot.
+
+    build_ci_dataset.py already resolved these names against Zoho; re-deriving
+    them from dashboard_calls.employee_id would give a second definition of who
+    the agents are, and team/manager/role are not on a call row at all.
+    """
+    return [
+        {
+            "employee_id": e["id"],
+            "name": e["name"],
+            "team": e.get("team"),
+            "manager": e.get("manager"),
+            "role": e.get("role"),
+        }
+        for e in dataset["employees"]
+    ]
+
+
+def geo_rows(calls):
+    """Distinct region/state/city triples, ordered as data/taxonomy.ts orders them.
+
+    First occurrence wins, then a stable sort on (region, state) — the exact
+    shape of dedupeGeo() in the dashboard, so the cascading region -> state
+    dropdowns offer the same options in the same order whichever mode the app
+    runs in.
+
+    The TypeScript sorts with localeCompare and this sorts by code point. On the
+    29 Aug 2026 snapshot the two orderings are identical, checked row by row
+    rather than assumed: every region and state is ASCII and capitalised, and
+    the three non-ASCII values ('Dubai' spelt three ways) are all cities, which
+    are not part of the sort key. It matters only until the dashboard stops
+    building this list for itself, after which this is the only definition.
+    """
+    seen = set()
+    out = []
+    for c in calls:
+        key = (c["region"], c["state"], c["city"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"region": c["region"], "state": c["state"], "city": c["city"], "pin": ""})
+    out.sort(key=lambda g: (g["region"], g["state"]))
+    return out
+
+
+def snapshot_row(dataset):
+    """The single dashboard_snapshot row.
+
+    taxonomy is stored verbatim. It is not recomputed here and must not be
+    recomputed in SQL: the Python that built it applied its own normalisation
+    while joining Zoho, Sarvam and the enrichment files, and a second definition
+    would agree today and drift the first time that changes.
+    """
+    return {
+        "id": True,
+        "generated_at": dataset["generatedAt"],
+        "source_label": dataset["sourceLabel"],
+        "taxonomy": dataset["taxonomy"],
+        "geo": geo_rows(dataset["calls"]),
+    }
 
 
 def detail_row(call, audit):
@@ -399,6 +464,9 @@ def verify(session):
         ("default period window", "dashboard_calls",
          {"select": "call_id", "call_ts": [f"gte.{PERIOD_START}", f"lt.{PERIOD_END}"]},
          EXPECT_PERIOD),
+        ("dashboard_employees", "dashboard_employees",
+         {"select": "employee_id"}, EXPECT_EMPLOYEES),
+        ("dashboard_snapshot", "dashboard_snapshot", {"select": "id"}, 1),
     ]
     ok = True
     for label, table, params, expected in checks:
@@ -407,6 +475,40 @@ def verify(session):
             ok = False
         mark = "ok  " if got == expected else "FAIL"
         print(f"   {mark} {label:<24} {got:>6,}  expected {expected:,}")
+    # dashboard_meta is a view over one row, so a row count proves nothing about
+    # what is IN that row: an empty taxonomy and a full one both count as 1.
+    # Read the view the API actually reads and measure its contents.
+    r = session.get(
+        f"{URL}/rest/v1/dashboard_meta",
+        params={"select": "call_count,max_ts,geo,taxonomy"},
+        headers=headers({"Accept": "application/json"}),
+        timeout=60,
+    )
+    r.raise_for_status()
+    rows = r.json()
+    if len(rows) != 1:
+        print(f"   FAIL dashboard_meta            {len(rows)} rows, expected exactly 1")
+        return False
+    meta = rows[0]
+    for label, got, expected in [
+        ("meta call_count", int(meta["call_count"]), EXPECT_CALLS),
+        ("meta geo triples", len(meta["geo"]), EXPECT_GEO),
+        ("meta taxonomy keys", len(meta["taxonomy"]), 8),
+    ]:
+        if got != expected:
+            ok = False
+        print(f"   {'ok  ' if got == expected else 'FAIL'} {label:<24} {got:>6,}  expected {expected:,}")
+
+    # The anchor the whole date filter hangs off. PERIOD_END is max_ts plus one
+    # day, and the 4,655-call window checked above is measured from it, so a
+    # max_ts that has moved invalidates every period figure on the dashboard.
+    anchor = datetime.fromisoformat(meta["max_ts"]) + timedelta(days=1)
+    want = datetime.fromisoformat(PERIOD_END)
+    if anchor != want:
+        ok = False
+    print(f"   {'ok  ' if anchor == want else 'FAIL'} {'meta anchor':<24} "
+          f"{anchor.isoformat()}  expected {want.isoformat()}")
+
     if not ok:
         print("\nThe load does not match the snapshot. Stop and find out why before "
               "trusting anything downstream.")
@@ -422,6 +524,10 @@ def main():
                    help="run the verification counts against Supabase and exit")
     p.add_argument("--allow-score-rounding", action="store_true",
                    help="accept that fractional qa_score values are rounded into the integer column")
+    p.add_argument("--only", choices=("all", "calls", "detail", "meta"), default="all",
+                   help="load one table group instead of everything. call_detail is 97 MB and "
+                        "several minutes; reloading it to change 17 employee rows is waste. "
+                        "Verification always runs in full, whatever was loaded.")
     p.add_argument("--dataset", type=Path, default=DATASET)
     p.add_argument("--audits", type=Path, default=AUDITS)
     p.add_argument("--batch-size", type=int, default=BATCH_CALLS)
@@ -439,7 +545,8 @@ def main():
 
     print(f"[read] {args.dataset.relative_to(BASE)}")
     print(f"[read] {args.audits.relative_to(BASE)}")
-    calls = json.loads(args.dataset.read_text(encoding="utf-8"))["calls"]
+    dataset = json.loads(args.dataset.read_text(encoding="utf-8"))
+    calls = dataset["calls"]
     audits = {a["id"]: a for a in json.loads(args.audits.read_text(encoding="utf-8"))["calls"]}
 
     print("\n[preflight]")
@@ -457,6 +564,8 @@ def main():
     round_scores = args.allow_score_rounding and is_integer_column(qa_score_fmt)
     call_rows = [call_row(c, audits.get(c["id"]), round_scores) for c in calls]
     detail_rows = [detail_row(c, audits.get(c["id"])) for c in calls]
+    emp_rows = employee_rows(dataset)
+    snap = snapshot_row(dataset)
 
     calls_mb = len(json.dumps(call_rows)) / 1e6
     detail_mb = len(json.dumps(detail_rows)) / 1e6
@@ -465,6 +574,9 @@ def main():
           f"({len(TYPED) + len(DERIVED)} typed columns + {len(payload_keys)} payload keys)")
     print(f"[plan] call_detail      {len(detail_rows):,} rows, {detail_mb:.1f} MB")
     print(f"[plan] call_actions     0 rows - append-only, nothing to backfill")
+    print(f"[plan] dashboard_employees {len(emp_rows):,} rows")
+    print(f"[plan] dashboard_snapshot  1 row, {len(snap['geo']):,} geo triples, "
+          f"taxonomy: {', '.join(f'{k} {len(v)}' for k, v in snap['taxonomy'].items())}")
     print(f"       payload: {', '.join(payload_keys)}")
 
     if args.dry_run:
@@ -477,8 +589,16 @@ def main():
         print("\n   Re-run without --dry-run to load.")
         return
 
-    load(session, "dashboard_calls", call_rows, args.batch_size)
-    load(session, "call_detail", detail_rows, args.detail_batch_size)
+    want = args.only
+    if want in ("all", "meta"):
+        load(session, "dashboard_employees", emp_rows, args.batch_size)
+    if want in ("all", "calls"):
+        load(session, "dashboard_calls", call_rows, args.batch_size)
+    if want in ("all", "detail"):
+        load(session, "call_detail", detail_rows, args.detail_batch_size)
+    if want in ("all", "meta"):
+        # Last, so its generated_at means "everything above this is loaded".
+        load(session, "dashboard_snapshot", [snap], 1)
 
     sys.exit(0 if verify(session) else 2)
 

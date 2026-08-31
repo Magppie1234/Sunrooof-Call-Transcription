@@ -14,7 +14,7 @@ export const MIN_TRANSCRIPTION_CONFIDENCE = 0.6;
 /**
  * Data source mode.
  *   'real' — the live Sunrooof dataset (Zoho CRM + Sarvam transcripts + LLM
- *            extraction), snapshotted into src/data/real/dataset.json.
+ *            extraction), snapshotted into src/data/real/dataset.slim.json.
  *   'mock' — the original generated demo data.
  *   'live' — a streaming backend that aggregates server-side; not built.
  */

@@ -31,8 +31,7 @@ export default async function handler(req, res) {
   try {
     const row = await selectOne('call_detail', {
       select: 'call_id,transcript,entities,recording_url,qa_criteria,qa_conduct,qa_red_flags,qa_review_reasons,qa_meta',
-      column: 'call_id',
-      value: id,
+      filters: { call_id: `eq.${id}` },
     });
     if (!row) return res.status(404).json({ error: 'No detail for that call' });
 

@@ -1,6 +1,7 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/layout';
 import { AppStateProvider, ROLE_PAGES, useAppState } from './state/AppState';
+import { CorpusMetaProvider } from './state/CorpusMetaProvider';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { Loading } from './components/ui';
 
@@ -41,6 +42,9 @@ function Guard({ path, children }: { path: string; children: ReactNode }) {
 export default function App() {
   return (
     <AppStateProvider>
+      {/* Outside AppShell, because the shell's own filter bar and banner read
+          the corpus totals and date bounds this resolves. */}
+      <CorpusMetaProvider>
       <HashRouter>
         <AppShell>
           {/* One boundary around the whole switch: navigating between pages
@@ -65,6 +69,7 @@ export default function App() {
           </Suspense>
         </AppShell>
       </HashRouter>
+      </CorpusMetaProvider>
     </AppStateProvider>
   );
 }

@@ -1,14 +1,25 @@
 /**
  * LIVE IMPLEMENTATION of DataService, backed by the real Sunrooof dataset.
  *
- * The dataset is a build-time snapshot (`src/data/real/dataset.json`) produced
- * by `scripts/build_ci_dataset.py` in the transcription repo, which joins:
+ * The dataset is a build-time snapshot (`src/data/real/dataset.slim.json`)
+ * produced by `scripts/build_ci_dataset.py` and split by
+ * `scripts/build_slim_dataset.py`, joining:
  *   Zoho CRM Calls + Leads · Sarvam Saaras v3 transcripts · gpt-4.1-mini
  *   extraction (summaries, sentiment, readiness, objections, FAQs).
  *
- * A snapshot rather than live API calls because this app is a static SPA with
- * no server to hold Zoho/Supabase credentials — the same reason the numbers are
- * as of `generatedAt` rather than this second. Re-run the builder to refresh.
+ * A snapshot rather than live API calls because this app started as a static
+ * SPA with no server to hold Zoho/Supabase credentials — the same reason the
+ * numbers are as of `generatedAt` rather than this second. That is what the
+ * Supabase migration is undoing; liveService will be the other implementation
+ * of this same interface, reading /api/* instead.
+ *
+ * THE SNAPSHOT IS LOADED WITH A DYNAMIC IMPORT
+ * A static `import dataset from '...json'` puts the whole file in whatever
+ * chunk references this module, and services/index.ts references it from the
+ * main chunk. So the 21.5 MB arrived on first paint even in modes that never
+ * touched it. Behind `await import()` it becomes its own chunk, fetched only
+ * when a method actually needs the calls. Every DataService method is already
+ * async, so nothing above had to change to accommodate it.
  *
  * Writes (action status, alert status, corrections) stay in memory: there is no
  * task or escalation system to persist them to. That limit is declared in
@@ -18,14 +29,15 @@ import type { AlertItem, CallRecord, Employee, NextAction } from '../types/domai
 import type { FilterState, FilteredData } from '../lib/filters';
 import { applyFilters } from '../lib/filters';
 import { deriveAlerts } from '../lib/alerts';
-import { EMPLOYEES } from '../data/taxonomy';
-import dataset from '../data/real/dataset.slim.json';
+import { corpusFromCalls, deriveCorpus, type Corpus, type CorpusMeta, type Taxonomy } from '../data/corpusMeta';
 import type { DataService } from './types';
 
 interface Dataset {
   generatedAt: string;
   sourceLabel: string;
   calls: CallRecord[];
+  employees: Employee[];
+  taxonomy: Taxonomy;
 }
 
 /**
@@ -41,60 +53,57 @@ interface CallDetailFile {
   recordingUrl: string | null;
   qa: unknown | null;
 }
-const data = dataset as unknown as Dataset;
-export const DATASET_CALL_COUNT = data.calls.length;
 
-/**
- * The snapshot covers a fixed historical window (July 2026). The dashboard's
- * period filters are relative to "now", so anchoring to the newest call keeps
- * "last 30 days" meaningful instead of returning an empty dashboard once the
- * snapshot ages. The UI states the snapshot date next to every period label.
- */
-export const DATA_ANCHOR: Date = (() => {
-  let newest = 0;
-  for (const c of data.calls) {
-    const t = new Date(c.dateTime).getTime();
-    if (t > newest) newest = t;
-  }
-  // +1 day so the newest call sits inside the window rather than on its edge.
-  return newest ? new Date(newest + 86400_000) : new Date();
-})();
-
-const toIsoDate = (d: Date) => d.toISOString().slice(0, 10);
-
-/** Bounds for the custom date-range picker — the actual first/last call date
- * in the loaded dataset, so users can't pick an empty range outside it. */
-export const [DATASET_MIN_DATE, DATASET_MAX_DATE]: [string, string] = (() => {
-  let min = Infinity, max = -Infinity;
-  for (const c of data.calls) {
-    const t = new Date(c.dateTime).getTime();
-    if (t < min) min = t;
-    if (t > max) max = t;
-  }
-  if (!Number.isFinite(min)) {
-    const today = toIsoDate(new Date());
-    return [today, today];
-  }
-  return [toIsoDate(new Date(min)), toIsoDate(new Date(max))];
-})();
+interface Loaded {
+  calls: CallRecord[];
+  meta: CorpusMeta;
+  corpus: Corpus;
+  generatedAt: string;
+}
 
 class RealService implements DataService {
-  sourceLabel = data.sourceLabel;
+  // Known before the snapshot loads, because the shell shows it in the banner
+  // while getMeta() is still in flight. Replaced by the snapshot's own label
+  // as soon as it arrives.
+  sourceLabel = 'Live Sunrooof data (Zoho calls, Sarvam transcripts, gpt-4.1-mini extraction)';
   isMock = false;
 
-  private calls = data.calls;
   /** Merged records, so revisiting a call does not refetch its detail file. */
   private detailCache = new Map<string, CallRecord>();
   private alertOverrides = new Map<string, AlertItem['status']>();
   private alertCache = new Map<string, AlertItem[]>();
-  private auditLog: { at: string; user: string; entry: string }[] = [
-    { at: data.generatedAt, user: 'system', entry: `Dataset built from Zoho CRM, Sarvam transcripts and gpt-4.1-mini extraction (${data.calls.length} calls).` },
-  ];
+  private auditLog: { at: string; user: string; entry: string }[] = [];
 
-  async lastRefresh() { return data.generatedAt; }
+  private loading: Promise<Loaded> | null = null;
+
+  /** Loads the snapshot chunk once; every later call gets the same promise. */
+  private load(): Promise<Loaded> {
+    this.loading ??= import('../data/real/dataset.slim.json').then((mod) => {
+      const data = (mod.default ?? mod) as unknown as Dataset;
+      const meta = corpusFromCalls(data.calls, {
+        generatedAt: data.generatedAt,
+        sourceLabel: data.sourceLabel,
+        employees: data.employees,
+        taxonomy: data.taxonomy,
+      });
+      this.sourceLabel = data.sourceLabel;
+      this.auditLog = [{
+        at: data.generatedAt,
+        user: 'system',
+        entry: `Dataset built from Zoho CRM, Sarvam transcripts and gpt-4.1-mini extraction (${data.calls.length} calls).`,
+      }];
+      return { calls: data.calls, meta, corpus: deriveCorpus(meta), generatedAt: data.generatedAt };
+    });
+    return this.loading;
+  }
+
+  async getMeta(): Promise<CorpusMeta> { return (await this.load()).meta; }
+
+  async lastRefresh() { return (await this.load()).generatedAt; }
 
   async getFiltered(filters: FilterState): Promise<FilteredData> {
-    return applyFilters(this.calls, filters, DATA_ANCHOR);
+    const { calls, corpus } = await this.load();
+    return applyFilters(calls, filters, corpus.anchor);
   }
 
   /**
@@ -102,11 +111,12 @@ class RealService implements DataService {
    * criteria — those are ~87 MB across the corpus and only ever render here, so
    * they live in one file per call under public/ and are fetched on demand.
    *
-   * Sunday's GET /api/call/[id] replaces the fetch URL and nothing else: the
-   * detail file's shape is the call_detail row's shape, deliberately.
+   * GET /api/call/[id] returns the same shape deliberately, so liveService
+   * changes the URL and nothing else.
    */
   async getCall(id: string): Promise<CallRecord | null> {
-    const slim = this.calls.find((c) => c.id === id);
+    const { calls } = await this.load();
+    const slim = calls.find((c) => c.id === id);
     if (!slim) return null;
     if (this.detailCache.has(id)) return this.detailCache.get(id)!;
 
@@ -134,26 +144,28 @@ class RealService implements DataService {
     return merged;
   }
 
-  async getEmployees(): Promise<Employee[]> { return EMPLOYEES; }
+  async getEmployees(): Promise<Employee[]> { return (await this.load()).meta.employees; }
 
   async getAlerts(filters: FilterState): Promise<AlertItem[]> {
+    const { calls, corpus } = await this.load();
     const key = JSON.stringify(filters);
     if (!this.alertCache.has(key)) {
-      this.alertCache.set(key, deriveAlerts(applyFilters(this.calls, filters, DATA_ANCHOR)));
+      this.alertCache.set(key, deriveAlerts(applyFilters(calls, filters, corpus.anchor)));
     }
     return this.alertCache.get(key)!.map((a) => ({ ...a, status: this.alertOverrides.get(a.id) ?? a.status }));
   }
 
   async updateAction(actionId: string, patch: Partial<Pick<NextAction, 'status' | 'ownerEmployeeId' | 'dueDate' | 'priority'>>): Promise<NextAction | null> {
-    for (const call of this.calls) {
+    const { calls, corpus } = await this.load();
+    for (const call of calls) {
       const a = call.actions.find((x) => x.id === actionId);
       if (!a) continue;
       Object.assign(a, patch);
       if (patch.status === 'completed') a.slaStatus = a.slaStatus === 'overdue' ? 'breached' : 'met';
       if (patch.dueDate) {
         const due = new Date(patch.dueDate);
-        a.slaStatus = due < DATA_ANCHOR ? 'overdue'
-          : due.toDateString() === DATA_ANCHOR.toDateString() ? 'due_today' : 'on_track';
+        a.slaStatus = due < corpus.anchor ? 'overdue'
+          : due.toDateString() === corpus.anchor.toDateString() ? 'due_today' : 'on_track';
       }
       this.auditLog.unshift({ at: new Date().toISOString(), user: 'demo-user', entry: `Action ${actionId} updated: ${JSON.stringify(patch)} (in-app only — no task system connected)` });
       this.alertCache.clear();
@@ -171,7 +183,7 @@ class RealService implements DataService {
     this.auditLog.unshift({ at: new Date().toISOString(), user: entry.user, entry: `Correction on ${entry.callId}: ${entry.field} "${entry.oldValue}" → "${entry.newValue}"` });
   }
 
-  async getAuditLog() { return this.auditLog; }
+  async getAuditLog() { await this.load(); return this.auditLog; }
 }
 
 export const realService = new RealService();

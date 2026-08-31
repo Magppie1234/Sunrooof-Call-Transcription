@@ -2,59 +2,57 @@
  * Taxonomy resolver — the single place the app asks "who are the employees,
  * what regions/products/languages exist?".
  *
- * In mock mode these come from the generated demo pools; in real mode they are
- * the distinct values actually present in the live Sunrooof dataset. Pages,
- * filters and metrics import from here so neither side reaches into the other's
- * data module.
+ * These are no longer read out of a data module. Every DataService supplies
+ * them as part of its CorpusMeta, and CorpusMetaProvider installs them here
+ * once, before the app renders. So this module is mode-agnostic: it no longer
+ * imports the real snapshot, the mock pools, or DATA_MODE.
+ *
+ * WHY THAT MATTERED
+ * A JSON import pulls the whole file into whatever chunk references it, and
+ * lib/filters.ts imports this module, so that chunk was the main one. Importing
+ * dataset.slim.json here put all 6,253 call records into the first paint to
+ * read seventeen employees and eight string arrays out of the top of it. The
+ * previous fix pointed the import at the slim build; this removes it.
+ *
+ * THE EXPORTS ARE LET, NOT CONST, ON PURPOSE
+ * ES module bindings are live: the nine modules that `import { EMPLOYEES }`
+ * see whatever install() last assigned, with no call-site changes and no hook
+ * threading through pure functions like filters.ts. The cost is a window
+ * before install() where the values are unpopulated, which is why the initial
+ * values THROW on access rather than sit there as empty arrays — an empty
+ * EMPLOYEES would make empTeam() return '' and quietly narrow a filter to
+ * nothing, which is exactly the class of silent wrongness this codebase keeps
+ * paying for. CorpusMetaProvider renders nothing until install() has run, so
+ * the only way to trip the guard is to read one of these during module
+ * evaluation. Don't.
  */
-import { DATA_MODE } from '../config';
 import type { Employee } from '../types/domain';
-import {
-  EMPLOYEES as MOCK_EMPLOYEES,
-  GEO as MOCK_GEO,
-  PRODUCT_SERIES as MOCK_PRODUCTS,
-  LANGUAGES as MOCK_LANGUAGES,
-  LEAD_SOURCES as MOCK_LEAD_SOURCES,
-} from './mock/taxonomies';
-// The slim build, not dataset.json. This module needs only the two top-level
-// keys `employees` (17 rows) and `taxonomy` (eight string arrays) — a few KB —
-// but a JSON import pulls the whole file into whatever chunk references it, and
-// taxonomy.ts is imported by filters.ts, so that chunk is the main one. Pointing
-// this at the full snapshot put all 6,253 transcripts back into the first-paint
-// bundle, which is the exact cost the slim split exists to remove.
-import realDataset from './real/dataset.slim.json';
+import type { CorpusMeta, GeoRow } from './corpusMeta';
 
-const isReal = (DATA_MODE as string) === 'real';
-
-interface RealShape {
-  employees: Employee[];
-  taxonomy: {
-    regions: string[]; states: string[]; cities: string[]; products: string[];
-    languages: string[]; leadSources: string[]; campaigns: string[]; teams: string[];
+function unset<T extends object>(name: string): T {
+  const fail = (): never => {
+    throw new Error(
+      `taxonomy.${name} was read before the corpus metadata loaded. It is populated ` +
+      `by CorpusMetaProvider before the app renders, so this is a module-level read ` +
+      `— move it inside a component or a function.`);
   };
-}
-const real = realDataset as unknown as RealShape;
-
-export const EMPLOYEES: Employee[] = isReal ? real.employees : MOCK_EMPLOYEES;
-
-/** Region → state pairs used by the cascading region/state filters. */
-export const GEO: { region: string; state: string; city: string; pin: string }[] = isReal
-  ? // Rebuilt from the real calls so the state list stays consistent with region.
-    dedupeGeo()
-  : MOCK_GEO.map((g) => ({ region: g.region, state: g.state, city: g.city, pin: g.pin }));
-
-function dedupeGeo() {
-  const seen = new Set<string>();
-  const out: { region: string; state: string; city: string; pin: string }[] = [];
-  for (const c of (realDataset as unknown as { calls: { region: string; state: string; city: string }[] }).calls) {
-    const key = `${c.region}|${c.state}|${c.city}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ region: c.region, state: c.state, city: c.city, pin: '' });
-  }
-  return out.sort((a, b) => a.region.localeCompare(b.region) || a.state.localeCompare(b.state));
+  return new Proxy([] as unknown as T, { get: fail, has: fail, ownKeys: fail });
 }
 
-export const PRODUCT_SERIES: readonly string[] = isReal ? real.taxonomy.products : MOCK_PRODUCTS;
-export const LANGUAGES: readonly string[] = isReal ? real.taxonomy.languages : MOCK_LANGUAGES;
-export const LEAD_SOURCES: readonly string[] = isReal ? real.taxonomy.leadSources : MOCK_LEAD_SOURCES;
+export let EMPLOYEES: Employee[] = unset('EMPLOYEES');
+
+/** Region → state → city triples used by the cascading geography filters. */
+export let GEO: GeoRow[] = unset('GEO');
+
+export let PRODUCT_SERIES: readonly string[] = unset('PRODUCT_SERIES');
+export let LANGUAGES: readonly string[] = unset('LANGUAGES');
+export let LEAD_SOURCES: readonly string[] = unset('LEAD_SOURCES');
+
+/** Called once by CorpusMetaProvider, before anything renders. */
+export function installTaxonomy(meta: CorpusMeta): void {
+  EMPLOYEES = meta.employees;
+  GEO = meta.geo;
+  PRODUCT_SERIES = meta.taxonomy.products;
+  LANGUAGES = meta.taxonomy.languages;
+  LEAD_SOURCES = meta.taxonomy.leadSources;
+}

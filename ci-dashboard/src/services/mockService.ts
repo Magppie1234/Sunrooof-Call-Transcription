@@ -8,7 +8,8 @@ import type { FilterState, FilteredData } from '../lib/filters';
 import { applyFilters } from '../lib/filters';
 import { deriveAlerts } from '../lib/alerts';
 import { generateDataset } from '../data/mock/generate';
-import { EMPLOYEES } from '../data/mock/taxonomies';
+import { EMPLOYEES, GEO, PRODUCT_SERIES, LANGUAGES, LEAD_SOURCES } from '../data/mock/taxonomies';
+import { corpusFromCalls, type CorpusMeta } from '../data/corpusMeta';
 import type { DataService } from './types';
 
 const latency = () => new Promise<void>((r) => setTimeout(r, 120 + Math.random() * 180));
@@ -23,6 +24,32 @@ class MockService implements DataService {
     { at: this.dataset.generatedAt, user: 'system', entry: 'Mock dataset generated (seed 20260730).' },
   ];
   private alertCache = new Map<string, AlertItem[]>();
+
+  /**
+   * Mock mode used to borrow the REAL dataset's constants: layout.tsx imported
+   * DATA_ANCHOR and friends from realService unconditionally, so the demo
+   * dashboard reported the live corpus's call total and seeded its custom date
+   * range from the live corpus's newest call. Supplying its own meta ends that.
+   */
+  async getMeta(): Promise<CorpusMeta> {
+    return corpusFromCalls(this.dataset.calls, {
+      generatedAt: this.dataset.generatedAt,
+      sourceLabel: this.sourceLabel,
+      employees: EMPLOYEES,
+      // The mock pools carry a real postcode per city; the geo list keeps it.
+      geo: GEO.map((g) => ({ region: g.region, state: g.state, city: g.city, pin: g.pin })),
+      taxonomy: {
+        regions: [...new Set(GEO.map((g) => g.region))],
+        states: [...new Set(GEO.map((g) => g.state))],
+        cities: [...new Set(GEO.map((g) => g.city))],
+        products: [...PRODUCT_SERIES],
+        languages: [...LANGUAGES],
+        leadSources: [...LEAD_SOURCES],
+        campaigns: [],
+        teams: [...new Set(EMPLOYEES.map((e) => e.team))],
+      },
+    });
+  }
 
   async lastRefresh() { return this.dataset.generatedAt; }
 

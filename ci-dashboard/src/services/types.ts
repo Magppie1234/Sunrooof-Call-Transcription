@@ -6,11 +6,17 @@
  */
 import type { AlertItem, CallRecord, Employee, NextAction, ActionStatus } from '../types/domain';
 import type { FilterState, FilteredData } from '../lib/filters';
+import type { CorpusMeta } from '../data/corpusMeta';
 
 export interface DataService {
   /** Human-readable label of the backing source, shown in the UI. */
   sourceLabel: string;
   isMock: boolean;
+  /**
+   * The option lists, roster and date bounds the app shell needs before it can
+   * render. Resolved once by CorpusMetaProvider; nothing else should call it.
+   */
+  getMeta(): Promise<CorpusMeta>;
   lastRefresh(): Promise<string>;
   getFiltered(filters: FilterState): Promise<FilteredData>;
   getCall(id: string): Promise<CallRecord | null>;
