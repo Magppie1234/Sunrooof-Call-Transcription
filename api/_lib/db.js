@@ -80,6 +80,41 @@ export async function selectAll(table, { select, filters = {}, order = '', key =
 }
 
 /**
+ * ONE page of rows, plus the total the filter matches.
+ *
+ * selectAll() pages to exhaustion inside the function, which is right for the
+ * 17-row roster and wrong for the call list: measured against the real corpus,
+ * one call to /api/calls with no filter took 82.5 SECONDS and produced 23.08 MB
+ * of JSON. A serverless function has neither that long to run nor that much
+ * room to answer in, so the paging has to be visible to the caller and the
+ * client has to drive it. 3,871 bytes per call, measured — a 500-row page is
+ * 1.85 MB raw and 0.25 MB over the wire once compressed.
+ *
+ * `total` comes from PostgREST's own count, so the client knows how many pages
+ * to ask for without a second query.
+ */
+export async function selectPage(table, { select, filters = {}, order = '', key = 'call_id', limit, offset = 0 }) {
+  assertConfigured();
+  const params = new URLSearchParams();
+  params.set('select', select);
+  params.set('order', order ? `${order},${key}.asc` : `${key}.asc`);
+  for (const [k, v] of Object.entries(filters)) {
+    if (Array.isArray(v)) for (const one of v) params.append(k, one);
+    else params.set(k, v);
+  }
+  const res = await fetch(`${URL_}/rest/v1/${table}?${params}`, {
+    headers: headers({ Range: `${offset}-${offset + limit - 1}`, Prefer: 'count=exact' }),
+  });
+  if (!res.ok) throw new Error(`${table}: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  const rows = await res.json();
+  // "0-499/6253" — the part after the slash is the count the filter matches,
+  // which is what paginates; the range before it is only this page.
+  const total = Number(String(res.headers.get('content-range') ?? '').split('/')[1]);
+  return { rows, total: Number.isFinite(total) ? total : rows.length };
+}
+
+
+/**
  * The first matching row, or null.
  *
  * `filters` carries whole PostgREST predicates (`eq.887064000041661165`,

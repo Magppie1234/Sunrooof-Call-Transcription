@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# The two builds scripts/diff_modes.mjs compares. Build output like dist/, and
+# together another 44 MB of it.
+dist-real
+dist-live
