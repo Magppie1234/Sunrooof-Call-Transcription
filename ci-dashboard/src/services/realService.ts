@@ -19,13 +19,27 @@ import type { FilterState, FilteredData } from '../lib/filters';
 import { applyFilters } from '../lib/filters';
 import { deriveAlerts } from '../lib/alerts';
 import { EMPLOYEES } from '../data/taxonomy';
-import dataset from '../data/real/dataset.json';
+import dataset from '../data/real/dataset.slim.json';
 import type { DataService } from './types';
 
 interface Dataset {
   generatedAt: string;
   sourceLabel: string;
   calls: CallRecord[];
+}
+
+/**
+ * One file per call under public/data/detail/, written by
+ * scripts/build_slim_dataset.py. Mirrors the call_detail row in Postgres, with
+ * the whole QA audit rather than only its heavy fields, so neither caller
+ * (QaAuditPanel, the AdvancedQa drawer) has to combine two sources.
+ */
+interface CallDetailFile {
+  callId: string;
+  transcript: CallRecord['transcript'] | null;
+  entities: CallRecord['entities'] | null;
+  recordingUrl: string | null;
+  qa: unknown | null;
 }
 const data = dataset as unknown as Dataset;
 export const DATASET_CALL_COUNT = data.calls.length;
@@ -69,6 +83,8 @@ class RealService implements DataService {
   isMock = false;
 
   private calls = data.calls;
+  /** Merged records, so revisiting a call does not refetch its detail file. */
+  private detailCache = new Map<string, CallRecord>();
   private alertOverrides = new Map<string, AlertItem['status']>();
   private alertCache = new Map<string, AlertItem[]>();
   private auditLog: { at: string; user: string; entry: string }[] = [
@@ -81,8 +97,41 @@ class RealService implements DataService {
     return applyFilters(this.calls, filters, DATA_ANCHOR);
   }
 
+  /**
+   * The list payload carries no transcript, entities, recordingUrl or QA
+   * criteria — those are ~87 MB across the corpus and only ever render here, so
+   * they live in one file per call under public/ and are fetched on demand.
+   *
+   * Sunday's GET /api/call/[id] replaces the fetch URL and nothing else: the
+   * detail file's shape is the call_detail row's shape, deliberately.
+   */
   async getCall(id: string): Promise<CallRecord | null> {
-    return this.calls.find((c) => c.id === id) ?? null;
+    const slim = this.calls.find((c) => c.id === id);
+    if (!slim) return null;
+    if (this.detailCache.has(id)) return this.detailCache.get(id)!;
+
+    // A failed detail fetch degrades to the slim record rather than to null.
+    // Returning null would render "call not found" for a call that plainly
+    // exists in the list the user just clicked from — the transcript is missing,
+    // which the page already handles, but the call is not.
+    let detail: CallDetailFile | null = null;
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}data/detail/${encodeURIComponent(id)}.json`);
+      if (res.ok) detail = (await res.json()) as CallDetailFile;
+      else console.warn(`[realService] detail ${id}: HTTP ${res.status}`);
+    } catch (e) {
+      console.warn(`[realService] detail ${id} unreachable:`, e);
+    }
+
+    const merged: CallRecord = {
+      ...slim,
+      transcript: detail?.transcript ?? [],
+      entities: detail?.entities ?? [],
+      recordingUrl: detail?.recordingUrl ?? null,
+      qaAudit: detail?.qa ?? null,
+    };
+    this.detailCache.set(id, merged);
+    return merged;
   }
 
   async getEmployees(): Promise<Employee[]> { return EMPLOYEES; }

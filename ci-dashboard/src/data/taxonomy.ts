@@ -16,7 +16,13 @@ import {
   LANGUAGES as MOCK_LANGUAGES,
   LEAD_SOURCES as MOCK_LEAD_SOURCES,
 } from './mock/taxonomies';
-import realDataset from './real/dataset.json';
+// The slim build, not dataset.json. This module needs only the two top-level
+// keys `employees` (17 rows) and `taxonomy` (eight string arrays) — a few KB —
+// but a JSON import pulls the whole file into whatever chunk references it, and
+// taxonomy.ts is imported by filters.ts, so that chunk is the main one. Pointing
+// this at the full snapshot put all 6,253 transcripts back into the first-paint
+// bundle, which is the exact cost the slim split exists to remove.
+import realDataset from './real/dataset.slim.json';
 
 const isReal = (DATA_MODE as string) === 'real';
 

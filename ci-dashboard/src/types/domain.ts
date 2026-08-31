@@ -234,6 +234,12 @@ export interface CallRecord {
    * button always re-checks Zoho's live state before writing anything. */
   crmNoteSynced?: boolean;
   crmTranscriptSynced?: boolean;
+  /** The call's full QA audit. Present only on a record returned by
+   *  getCall() — the list payload omits it, because criteria and conduct are
+   *  46 MB across the corpus and render one call at a time. Typed as unknown
+   *  here so domain.ts stays free of the audit's shape; QaAuditPanel owns that
+   *  type and narrows it at the point of use. */
+  qaAudit?: unknown;
 }
 
 export type AlertSeverity = 'critical' | 'high' | 'medium';

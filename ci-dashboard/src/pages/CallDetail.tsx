@@ -6,7 +6,7 @@ import { service } from '../state/useData';
 import { fmtDateTime, fmtDuration, fmtINR, fmtTimestamp } from '../lib/format';
 import { EMPLOYEES } from '../data/taxonomy';
 import type { CallRecord } from '../types/domain';
-import QaAuditPanel from '../components/QaAuditPanel';
+import QaAuditPanel, { type QaCall } from '../components/QaAuditPanel';
 
 // The audio proxy (scripts/audio_proxy.mjs) is a standalone Node process on
 // localhost:3000 that holds the Zoho session cookie server-side — it never
@@ -134,7 +134,7 @@ export default function CallDetail() {
           <Card title={<>AI summary <Prov k="call.summary" /></>} sub="Generated from transcript — verify against evidence before acting">
             <p style={{ margin: 0, fontSize: 13 }}>{call.summary}</p>
           </Card>
-          <QaAuditPanel callId={call.id} />
+          <QaAuditPanel qa={(call.qaAudit ?? null) as QaCall | null} />
           <UpdateCrmPanel callId={call.id} crmNoteSynced={call.crmNoteSynced} crmTranscriptSynced={call.crmTranscriptSynced} />
           <Card title={<>Customer & deal context <Prov k="dim.crmStage" /></>}>
             <dl className="kv">

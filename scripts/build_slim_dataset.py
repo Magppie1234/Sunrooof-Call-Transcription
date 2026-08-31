@@ -13,21 +13,30 @@ every per-criterion audit to look at the Overview. Measured on the 29 Aug
 snapshot, the fields that only ever render on Call Detail are:
 
     dataset.json    transcript 29.4 MB · entities 0.9 · recordingUrl 0.5   = 56.9%
-    qa_audits.json  criteria 31.6 MB · conduct 14.7 · redFlags 2.7
-                    · reviewReasons 1.8                                    = 85.8%
+    qa_audits.json  criteria 31.6 MB · conduct 14.7                        = 82.1%
+
+Measured result: 110.6 MB of snapshot becomes a 23.1 MB first paint, because
+qa_audits.slim.json (10.0 MB) is reached only from Advanced QA, which is a lazy
+route.
 
 Splitting them on that line is not a judgement call — it is the same boundary
 already drawn in Postgres between `dashboard_calls` and `call_detail`, and the
 detail file's shape deliberately mirrors that table so the API route planned for
 Sunday is a drop-in replacement for the fetch, with no change to the caller.
 
-WHICH FIELDS ARE SAFE TO DROP
-grep confirms transcript, entities and recordingUrl are read only by
-CallDetail.tsx; QaAuditPanel (criteria, conduct) renders one call at a time and
-is imported only by CallDetail. Nothing in metrics.ts, alerts.ts or any page
-aggregate touches them. That is verified by reading the code, and H7 verifies it
-empirically by diffing every KPI before and after — do not treat this note as
-the proof.
+WHICH FIELDS ARE SAFE TO DROP, AND ONE THAT LOOKED SAFE AND IS NOT
+transcript, entities and recordingUrl are read only by CallDetail.tsx. criteria
+and conduct are read only one call at a time — by QaAuditPanel on Call Detail,
+and by the AdvancedQa drawer.
+
+`redFlags` and `reviewReasons` are the trap. They are audit detail by every
+intuition and they are read in AdvancedQa's LIST view: a red-flag column, its
+sort comparator, the CSV export and the needs-review flag. Moving them out would
+have emptied a column and a flag with no error raised and no page broken — the
+failure would have looked like data, not like a bug. They stay in the slim file.
+
+That boundary is established by reading the code. H7 establishes it empirically
+by diffing every KPI before and after; until then this note is a claim, not proof.
 
 OUTPUT LAYOUT
 `public/` rather than `src/`: Vite copies public/ verbatim and never bundles it,
@@ -44,7 +53,7 @@ console when a customer name is non-Latin.
 """
 import argparse
 import json
-import shutil
+
 import sys
 from pathlib import Path
 
@@ -61,7 +70,14 @@ AUDITS_SLIM = REAL / "qa_audits.slim.json"
 # call. Named explicitly rather than by size: a field that happens to be small
 # in this snapshot but is only ever read on Call Detail still belongs in detail.
 CALL_DETAIL_FIELDS = ("transcript", "entities", "recordingUrl")
-AUDIT_DETAIL_FIELDS = ("criteria", "conduct", "redFlags", "reviewReasons")
+
+# Only these two. `redFlags` and `reviewReasons` look like detail and are not:
+# AdvancedQa.tsx reads them in its LIST view — a red-flag column, a sort, a CSV
+# export and the needs-review flag (lines 107, 109, 117, 202). Stripping them
+# would have emptied that column and the flag silently, with no error and no
+# missing page. criteria and conduct are read only in the per-call drawer, which
+# is the same access pattern as Call Detail, so those are the two that move.
+AUDIT_DETAIL_FIELDS = ("criteria", "conduct")
 
 # Measured against the 29 Aug snapshot. Assertions, not documentation.
 EXPECT_CALLS = 6253
@@ -108,8 +124,13 @@ def main() -> int:
         d = {"callId": cid}
         for f in CALL_DETAIL_FIELDS:
             d[f] = c.get(f)
-        a = audits.get(cid)
-        d["qa"] = {f: (a or {}).get(f) for f in AUDIT_DETAIL_FIELDS} if a else None
+        # The WHOLE audit, not just the stripped fields. Two different callers
+        # need it — QaAuditPanel on Call Detail and the AdvancedQa drawer — and
+        # both want the scalars (score, tier, needsReview) alongside criteria and
+        # conduct. Duplicating ~1.6 KB of scalars per call costs about 10 MB
+        # spread across 6,253 files that are fetched one at a time, and buys a
+        # detail fetch that neither caller has to combine with anything.
+        d["qa"] = audits.get(cid)
         detail[cid] = d
         slim_calls.append({k: v for k, v in c.items() if k not in CALL_DETAIL_FIELDS})
 
@@ -145,9 +166,17 @@ def main() -> int:
     # Rewritten wholesale rather than merged: these are derived artefacts, and a
     # stale file left behind from an earlier snapshot would be indistinguishable
     # from a current one.
-    if PUBLIC_DETAIL.exists():
-        shutil.rmtree(PUBLIC_DETAIL)
-    PUBLIC_DETAIL.mkdir(parents=True)
+    # Files are unlinked individually and the directory is kept, rather than
+    # rmtree + mkdir. On Windows the tree lives under OneDrive, whose sync filter
+    # holds a handle on the directory for a moment after its contents go, so
+    # rmtree deletes every file and then dies with WinError 5 on the empty
+    # directory — leaving the split half-applied and exiting non-zero.
+    PUBLIC_DETAIL.mkdir(parents=True, exist_ok=True)
+    stale = list(PUBLIC_DETAIL.glob("*.json"))
+    for f in stale:
+        f.unlink()
+    if stale:
+        print(f"\n[clean] removed {len(stale):,} stale detail files")
 
     DATASET_SLIM.write_text(json.dumps(slim_data, **COMPACT), encoding="utf-8")
     AUDITS_SLIM.write_text(json.dumps(slim_audits, **COMPACT), encoding="utf-8")

@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PageHead } from '../components/layout';
 import { Card, KpiCard, Pill, DataTable, EmptyState, exportCsv, type Column, type PillTone } from '../components/ui';
 import { fmtInt } from '../lib/format';
-import qaData from '../data/real/qa_audits.json';
+import qaData from '../data/real/qa_audits.slim.json';
 import changeData from '../data/real/scorecard_change_review.json';
 
 /**
@@ -27,7 +27,7 @@ interface QaCall {
   score: number | null; preDeduction: number | null; earned: number; adjustedMax: number;
   deduction: number; tier: string; autoZero: boolean; autoZeroCodes: string[];
   criticalMisses: Flag[]; redFlags: Flag[]; needsReview: boolean; reviewReasons: string[];
-  status: string; criteria: Criterion[];
+  status: string; /** Absent in the slim list payload; fetched per call by the drawer. */ criteria?: Criterion[];
   coaching: { strengths: unknown[]; improvements: unknown[]; summary: string };
 }
 interface QaData {
@@ -216,7 +216,25 @@ export default function AdvancedQa() {
   );
 }
 
-function Detail({ call, onClose }: { call: QaCall; onClose: () => void }) {
+/**
+ * The list payload no longer carries `criteria` or `conduct` — 46 MB across the
+ * corpus, read only here and on Call Detail. The drawer opens immediately on the
+ * slim record it was given and swaps in the full audit when its detail file
+ * arrives, so the header and score render with no wait and the criteria table
+ * fills in. Sunday's GET /api/call/[id] changes this URL and nothing else.
+ */
+function Detail({ call: slim, onClose }: { call: QaCall; onClose: () => void }) {
+  const [call, setCall] = useState<QaCall>(slim);
+  useEffect(() => {
+    let cancelled = false;
+    setCall(slim);
+    fetch(`${import.meta.env.BASE_URL}data/detail/${encodeURIComponent(slim.id)}.json`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.qa) setCall(d.qa as QaCall); })
+      .catch((e) => console.warn(`[AdvancedQa] detail ${slim.id}:`, e));
+    return () => { cancelled = true; };
+  }, [slim]);
+
   return (
     <Card
       title={call.score === null ? 'Not scored' : `${call.score.toFixed(1)} / 100`}
@@ -254,7 +272,7 @@ function Detail({ call, onClose }: { call: QaCall; onClose: () => void }) {
             </tr>
           </thead>
           <tbody>
-            {call.criteria.map((c) => (
+            {(call.criteria ?? []).map((c) => (
               <tr key={c.id}>
                 <td>C{c.id}</td>
                 <td>{c.name}</td>

@@ -1,5 +1,4 @@
 import { Card, Pill, type PillTone } from './ui';
-import qaData from '../data/real/qa_audits.json';
 
 /**
  * The learning-and-development view of one call.
@@ -41,9 +40,6 @@ interface QaCall {
   };
 }
 
-const ALL = (qaData as unknown as { calls: QaCall[] }).calls;
-const BY_ID = new Map(ALL.map((c) => [String(c.id), c]));
-
 const SEV_TONE: Record<string, PillTone> = {
   critical: 'critical', important: 'warning', minor: 'neutral',
 };
@@ -60,12 +56,15 @@ const CONTEXT_LABEL: Record<string, string> = {
   no_contact: 'No conversation took place',
 };
 
-export function hasQaAudit(callId: string) {
-  return BY_ID.has(String(callId));
-}
+export type { QaCall };
 
-export default function QaAuditPanel({ callId }: { callId: string }) {
-  const qa = BY_ID.get(String(callId));
+/**
+ * Takes the audit rather than looking it up by id. It used to import the whole
+ * qa_audits.json to render one call — 56 MB, of which criteria and conduct are
+ * 46 MB, downloaded by everyone who opened a single Call Detail page. The audit
+ * now arrives on the record from getCall(), which fetches one file per call.
+ */
+export default function QaAuditPanel({ qa }: { qa: QaCall | null | undefined }) {
   if (!qa) {
     return (
       <Card title="Call quality review"
