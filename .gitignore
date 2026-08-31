@@ -24,21 +24,25 @@ __pycache__/
 venv/
 .venv-win/
 
-# Regenerable dashboard exports — rebuilt from Supabase by
-# export_qa_audits_for_dashboard.py in seconds with no API calls. At 60 MB this
-# is past GitHub's warning threshold and would re-enter history on every refresh.
+# SOURCE snapshots — regenerable, and no longer what the app imports.
+# qa_audits.json rebuilds from Supabase via export_qa_audits_for_dashboard.py;
+# dataset.json via build_ci_dataset.py. Both are inputs to
+# scripts/build_slim_dataset.py, which emits the two .slim.json files the
+# dashboard actually imports — and those ARE tracked, so Vercel builds green
+# from a clean clone with neither of these present. Together they are 110 MB
+# that would re-enter history on every refresh, because a regenerated JSON file
+# differs everywhere or nowhere.
 ci-dashboard/src/data/real/qa_audits.json
+ci-dashboard/src/data/real/dataset.json
 
-# Derived by scripts/build_slim_dataset.py from the two snapshots above, in
-# about a minute and with no API calls. Ignored for the same reason, and for one
-# more: they are duplicates. dataset.slim.json is 23 MB of data already committed
-# inside dataset.json, and public/data/detail/ is 6,253 files totalling 82 MB —
-# a `git add -A` would put all of it in history, then re-enter it whole on every
-# refresh, because a regenerated JSON file differs everywhere or nowhere.
-# Regenerate with `python scripts/build_slim_dataset.py`; from Sunday the detail
-# files are superseded by GET /api/call/[id] against call_detail.
-ci-dashboard/src/data/real/dataset.slim.json
-ci-dashboard/src/data/real/qa_audits.slim.json
+# Per-call detail: 6,253 files, 87 MB, and every one of them a customer
+# transcript. Deliberately never deployed. Files under public/ are served as
+# plain static assets at a guessable URL, so authentication in the SPA cannot
+# protect them — the moment Vercel's Deployment Protection comes off they would
+# be readable by anyone who can guess a call id, signed in or not. Call Detail
+# sources them from GET /api/call/[id] against call_detail instead, which is
+# server-side and behind RLS. Regenerate locally with
+# `python scripts/build_slim_dataset.py` when working without the API.
 ci-dashboard/public/data/detail/
 
 # Stale 209 MB duplicate of the dashboard, kept on disk pending a decision on it.
