@@ -214,16 +214,29 @@ def call_row(call, audit, round_scores):
     return row
 
 
+# Audit fields that have a column of their own in call_detail. Everything else
+# goes to qa_meta, by difference — so an audit field added upstream is carried
+# rather than dropped, the same way payload works in dashboard_calls.
+AUDIT_OWN_COLUMNS = ("criteria", "conduct", "redFlags", "reviewReasons")
+
+
 def detail_row(call, audit):
+    a = audit or {}
     return {
         "call_id": call["id"],
         "transcript": call.get("transcript"),
         "entities": call.get("entities"),
         "recording_url": call.get("recordingUrl"),
-        "qa_criteria": (audit or {}).get("criteria"),
-        "qa_conduct": (audit or {}).get("conduct"),
-        "qa_red_flags": (audit or {}).get("redFlags"),
-        "qa_review_reasons": (audit or {}).get("reviewReasons"),
+        "qa_criteria": a.get("criteria"),
+        "qa_conduct": a.get("conduct"),
+        "qa_red_flags": a.get("redFlags"),
+        "qa_review_reasons": a.get("reviewReasons"),
+        # QaAuditPanel reads context, contextReason and agent, none of which had
+        # a home before this. Without them GET /api/call/[id] renders a panel
+        # missing the subtitle that explains why a call scored as it did, while
+        # the static detail files render it in full — the same page differing by
+        # where its data came from, with nothing raising an error.
+        "qa_meta": {k: v for k, v in a.items() if k not in AUDIT_OWN_COLUMNS} or None,
     }
 
 
